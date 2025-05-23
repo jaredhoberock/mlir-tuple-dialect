@@ -113,10 +113,11 @@ LogicalResult CmpOp::verifyTupleTypeHasImplFor(mlir::trait::TraitOp traitOp, Typ
 }
 
 LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  // if the TupleType is empty, the trait needn't exist at all
-  if (auto tupleTy = dyn_cast<TupleType>(getLhs().getType());
-      tupleTy.getTypes().empty()) {
-    return success();
+  // if the TupleType is concrete and empty, the trait needn't exist at all
+  if (auto tupleTy = dyn_cast<TupleType>(getLhs().getType())) {
+    if (tupleTy.getTypes().empty()) {
+      return success();
+    }
   }
 
   // look up the trait.trait we need

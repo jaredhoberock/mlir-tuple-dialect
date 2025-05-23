@@ -42,6 +42,28 @@ fn append_partial_eq_trait<'c>(
     ).expect("valid trait.trait");
 }
 
+fn append_partial_ord_trait<'c>(
+    block: &Block<'c>,
+    loc: Location<'c>
+) {
+    let source = r#"
+    trait.trait @PartialOrd {
+      func.func private @lt(!trait.self, !trait.self) -> i1
+      func.func private @le(!trait.self, !trait.self) -> i1
+      func.func private @gt(!trait.self, !trait.self) -> i1
+      func.func private @ge(!trait.self, !trait.self) -> i1
+    }
+    "#;
+
+    inline::parse_source_into_block(
+        loc,
+        &[],
+        &[],
+        StringRef::new(source),
+        block,
+    ).expect("valid trait.trait");
+}
+
 fn append_partial_eq_i32_impl<'c>(
     block: &Block<'c>,
     loc: Location<'c>,
@@ -50,6 +72,40 @@ fn append_partial_eq_i32_impl<'c>(
     trait.impl @PartialEq for i32 {
       func.func private @eq(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi eq, %self, %other : i32
+        return %res : i1
+      }
+    }
+    "#;
+
+    inline::parse_source_into_block(
+        loc,
+        &[],
+        &[],
+        StringRef::new(source),
+        block,
+    ).expect("valid trait.impl");
+}
+
+fn append_partial_ord_i32_impl<'c>(
+    block: &Block<'c>,
+    loc: Location<'c>,
+) {
+    let source = r#"
+    trait.impl @PartialOrd for i32 {
+      func.func private @lt(%self: i32, %other: i32) -> i1 {
+        %res = arith.cmpi slt, %self, %other : i32
+        return %res : i1
+      }
+      func.func private @le(%self: i32, %other: i32) -> i1 {
+        %res = arith.cmpi sle, %self, %other : i32
+        return %res : i1
+      }
+      func.func private @gt(%self: i32, %other: i32) -> i1 {
+        %res = arith.cmpi sgt, %self, %other : i32
+        return %res : i1
+      }
+      func.func private @ge(%self: i32, %other: i32) -> i1 {
+        %res = arith.cmpi sge, %self, %other : i32
         return %res : i1
       }
     }
@@ -155,16 +211,10 @@ fn append_test2_func<'c>(
       attributes { llvm.emit_c_interface } {
       %eq = tuple.cmp eq, %a, %b : tuple<i32,i32,i32>
       %ne = tuple.cmp ne, %a, %b : tuple<i32,i32,i32>
-
-      // XXX TODO implement PartialOrd comparisons
-      %lt = arith.constant 0 : i1
-      %le = arith.constant 0 : i1
-      %gt = arith.constant 0 : i1
-      %ge = arith.constant 0 : i1
-      //%lt = tuple.cmp lt, %a, %b : tuple<i32,i32,i32>
-      //%le = tuple.cmp le, %a, %b : tuple<i32,i32,i32>
-      //%gt = tuple.cmp gt, %a, %b : tuple<i32,i32,i32>
-      //%ge = tuple.cmp ge, %a, %b : tuple<i32,i32,i32>
+      %lt = tuple.cmp lt, %a, %b : tuple<i32,i32,i32>
+      %le = tuple.cmp le, %a, %b : tuple<i32,i32,i32>
+      %gt = tuple.cmp gt, %a, %b : tuple<i32,i32,i32>
+      %ge = tuple.cmp ge, %a, %b : tuple<i32,i32,i32>
     
       %c1 = arith.constant 1 : i64
       %c2 = arith.constant 2 : i64
@@ -228,6 +278,8 @@ fn test_tuple_jit() {
     // build trait prelude
     append_partial_eq_trait(&module.body(), loc);
     append_partial_eq_i32_impl(&module.body(), loc);
+    append_partial_ord_trait(&module.body(), loc);
+    append_partial_ord_i32_impl(&module.body(), loc);
 
     // build two functions @test1 and @test2
     module.body().append_operation(
@@ -290,12 +342,18 @@ fn test_tuple_jit() {
     //
     // Each bit is set to 1 if the corresponding predicate evaluates to true.
 
-    // XXX TODO test PartialOrd bits
-    //          they are set to be zero right while the PartialOrd predicates are unimplemented
+    // true bits: eq, le, ge
+    assert_eq!(call_test2(&engine, I32x3(1,2,3), I32x3(1,2,3)), 0b101001);
 
-    // true bits: eq
-    assert_eq!(call_test2(&engine, I32x3(1,2,3), I32x3(1,2,3)), 0b000001);
+    // true bits: le, lt, ne
+    assert_eq!(call_test2(&engine, I32x3(1,2,3), I32x3(1,2,4)), 0b001110);
 
-    // true bits: ne
-    assert_eq!(call_test2(&engine, I32x3(1,2,3), I32x3(1,2,4)), 0b000010);
+    // true bits: ne, gt, ge
+    assert_eq!(call_test2(&engine, I32x3(1,2,4), I32x3(1,2,3)), 0b110010);
+
+    // true bits: ne, lt, le
+    assert_eq!(call_test2(&engine, I32x3(0,2,3), I32x3(1,1,2)), 0b001110);
+
+    // true bits: ne, gt, ge
+    assert_eq!(call_test2(&engine, I32x3(0,2,0), I32x3(0,1,5)), 0b110010);
 }
