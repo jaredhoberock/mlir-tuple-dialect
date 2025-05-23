@@ -40,10 +40,12 @@ func.func @check(%x: tuple<i32, i32>, %y: tuple<i32, i32>) -> i1 {
        : (!trait.self, !trait.self) -> i1 to (tuple<i32, i32>, tuple<i32, i32>) -> i1
   return %r : i1
 }
+```
 </details>
 
 <details>
 <summary>Lowered to LLVM</summary>
+```
 %0 = llvm.extractelement %x[0]
 %1 = llvm.extractelement %y[0]
 %2 = llvm.call @__trait_PartialEq_impl_i32_eq(%0, %1)
@@ -52,5 +54,5 @@ func.func @check(%x: tuple<i32, i32>, %y: tuple<i32, i32>) -> i1 {
 %5 = llvm.call @__trait_PartialEq_impl_i32_eq(%3, %4)
 %6 = llvm.and %2, %5
 llvm.return %6
-</details>
 ```
+</details>
