@@ -1,4 +1,4 @@
-// RUN: opt --convert-to-llvm %s | FileCheck %s
+// RUN: mlir-opt --convert-to-llvm %s | FileCheck %s
 
 // -----
 // CHECK-LABEL: llvm.func @get_single_i32
