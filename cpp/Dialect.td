@@ -18,6 +18,8 @@ def TupleDialect : Dialect {
     "mlir::trait::TraitDialect",
     "mlir::vector::VectorDialect"
   ];
+
+  let hasCanonicalizer = 1;
 }
 
 class TupleOp<string mnemonic, list<Trait> traits = []> :

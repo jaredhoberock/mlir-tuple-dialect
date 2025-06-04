@@ -135,4 +135,129 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return verifyTupleTypeHasImplFor(traitOp, getLhs().getType());
 }
 
+YieldOp MapOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+FunctionType MapOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+FunctionType MapOp::getFunctionTypeForIteration(unsigned int i) {
+  SmallVector<Type> argumentTypes;
+  for (TupleType input : getInputTupleTypes())
+    argumentTypes.push_back(input.getType(i));
+
+  return FunctionType::get(
+      getContext(),
+      argumentTypes,
+      getResultTupleType().getType(i)
+  );
+}
+
+llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
+  auto bodyTy = getBodyFunctionType();
+  auto iterationTy = getFunctionTypeForIteration(i);
+
+  llvm::DenseMap<Type,Type> substitution;
+  if (failed(trait::unifyTypes(getLoc(), bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), substitution))) {
+    // this should never happen if MapOp::verifySymbolUses succeeds
+    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+  }
+
+  return substitution;
+}
+
+LogicalResult MapOp::verify() {
+  // check that we have at least one input tuple
+  if (getInputs().empty())
+    return emitOpError("expected at least one input tuple");
+
+  // verify all inputs are TupleType and collect their arities 
+  SmallVector<TupleType> inputTupleTypes;
+  size_t expectedArity = 0;
+
+  for (auto [i, input] : llvm::enumerate(getInputs())) {
+    auto tupleType = dyn_cast<TupleType>(input.getType());
+    if (!tupleType)
+      return emitOpError("input #") << i << " must be a 'tuple', got "
+                                    << input.getType();
+    inputTupleTypes.push_back(tupleType);
+
+    // check arity consistency
+    if (i == 0) {
+      expectedArity = tupleType.size();
+    } else if (tupleType.size() != expectedArity) {
+      return emitOpError("all input tuples must have the same arity, expected ")
+             << expectedArity << " but input #" << i << " has arity "
+             << tupleType.size();
+    }
+  }
+
+  // verify result is a tuple type
+  auto resultTupleType = dyn_cast<TupleType>(getResult().getType());
+  if (!resultTupleType)
+    return emitOpError("result must be a tuple type, got ") << getResult().getType();
+
+  // check result type's arity
+  if (resultTupleType.size() != expectedArity)
+    return emitOpError("result tuple must have the same arity as input, expected ")
+           << expectedArity << " but result tuple has arity "
+           << resultTupleType.size();
+
+  // check body block
+  Block &bodyBlock = getBody().front();
+
+  // check body argument count matches the number of inputs
+  if (bodyBlock.getNumArguments() != getInputs().size())
+    return emitOpError("body block must have ") << getInputs().size()
+           << " arguments to match the number of tuple inputs, got "
+           << bodyBlock.getNumArguments();
+
+  // check that the body block is terminated with YieldOp
+  if (bodyBlock.empty())
+    return emitOpError("body block cannot be empty");
+  if (!isa<YieldOp>(bodyBlock.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << bodyBlock.back().getName();
+
+  return success();
+}
+
+LogicalResult MapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // look for the enclosing ModuleOp
+  auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp)
+    return emitOpError() << "not contained in a module";
+
+  Location loc = getLoc();
+  MLIRContext *ctx = getContext();
+
+  // Get input tuple types and arity
+  SmallVector<TupleType> inputTupleTypes = getInputTupleTypes();
+  size_t arity = inputTupleTypes[0].size();
+
+  // treat the body as if it is a callee and get its function type
+  FunctionType calleeTy = getBodyFunctionType();
+
+  // for each tuple element,
+  // unify "iteration" i of the body
+  for (size_t i = 0; i < arity; ++i) {
+    // check iteration i like a function call
+    // collect a FunctionType for iteration i: these are the call arguments
+    FunctionType callerTy = getFunctionTypeForIteration(i);
+
+    // unify each iteration in isolation like a separate function call
+    llvm::DenseMap<Type,Type> substitution;
+    if (failed(trait::unifyTypes(loc, calleeTy, callerTy, moduleOp, substitution)))
+      return failure();
+  }
+
+  return success();
+}
+
 }

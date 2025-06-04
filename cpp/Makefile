@@ -17,7 +17,7 @@ TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git
 INCLUDES := -I $(MLIR_INCLUDE) -I $(TRAIT_DIALECT_INCLUDE)
 
 # Dialect library sources
-DIALECT_SOURCES := c_api.cpp ConvertToLLVM.cpp ConvertToTrait.cpp Dialect.cpp Enums.cpp Ops.cpp Types.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp ConvertToTrait.cpp Dialect.cpp Enums.cpp Ops.cpp Types.cpp
 DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
 
 # Generated files

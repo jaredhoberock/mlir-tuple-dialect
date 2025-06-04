@@ -2,7 +2,9 @@
 #define TUPLE_OPS_TD
 
 include "mlir/Interfaces/CallInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "Dialect.td"
@@ -109,6 +111,74 @@ def CmpOp : TupleOp<"cmp", [
   }];
 
   let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict `:` type($lhs)";
+}
+
+def MapOp : TupleOp<"map", [
+  AutomaticAllocationScope,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  OpAsmOpInterface
+]> {
+  let summary = "Execute a region elementwise across tuples";
+  let description = [{
+    `tuple.map` executes a region elementwise across multiple input tuples.
+    All input tuples must have the same arity. The region contains a single
+    block with one argument per tuple element position.
+  }];
+
+  let arguments = (ins Variadic<AnyType>:$inputs);
+  let results = (outs AnyType:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    unsigned int getArity() {
+      return getResultTupleType().size();
+    }
+
+    llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i);
+
+    SmallVector<TupleType> getInputTupleTypes() {
+      SmallVector<TupleType> result;
+      for (auto input : getInputs()) {
+        result.push_back(cast<TupleType>(input.getType()));
+      }
+      return result;
+    }
+
+    TupleType getResultTupleType() {
+      return cast<TupleType>(getResult().getType());
+    }
+
+    YieldOp bodyYield();
+
+    FunctionType getBodyFunctionType();
+    FunctionType getFunctionTypeForIteration(unsigned int i);
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Allow the dialect prefix to be omitted.
+    static StringRef getDefaultDialect() { return "tuple"; }
+  }];
+
+  let assemblyFormat = "$inputs attr-dict `:` type($inputs) `->` type($result) $body";
+  let hasVerifier = 1;
+}
+
+def YieldOp : TupleOp<"yield", [
+  HasParent<"MapOp">,
+  Pure,
+  ReturnLike,
+  Terminator
+]> {
+  let summary = "Yield operation for `tuple.map`";
+  let description = [{
+    `tuple.yield` yields a single value from a region within a tuple operation.
+    This is used as the terminator for regions like those in `tuple.map`.
+  }];
+
+  let arguments = (ins AnyType:$result);
+  let assemblyFormat = "attr-dict $result `:` type($result)";
 }
 
 #endif // TUPLE_OPS_TD
