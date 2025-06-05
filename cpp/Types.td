@@ -5,15 +5,15 @@ include "mlir/IR/AttrTypeBase.td"
 include "mlir-trait-dialect/cpp/TypeInterfaces.td"
 include "Dialect.td"
 
-def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicMatcherInterface]> {
+def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicTypeUnificationInterface]> {
   let mnemonic = "any";
   let summary = "Placeholder type representing any tuple type with trait bounds on element types";
   let description = [{
     The `!tuple.any` type is a symbolic type used to provide a generic `trait.impl`s
     for all tuple types.
 
-    It provides the method `bool matches(Type ty, trait::TraitOp& trait)` which will return `true` for any tuple type
-    whose element types all have a `trait.impl` for the given `trait::TraitOp`.
+    It provides the method `unifyWith` which will return `true` for any tuple type
+    whose element types all have a `trait.impl` for each trait mentioned in `traitBounds`.
 
     For example:
       trait.trait @PartialEq {
@@ -29,8 +29,8 @@ def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicMatcherInterface]>
   }];
 
   let extraClassDeclaration = [{
-    // for SymbolicMatcherInterface
-    bool matches(::mlir::Type ty, ::mlir::trait::TraitOp& trait) const;
+    // for SymbolicTypeUnificationInterface
+    mlir::LogicalResult unifyWith(mlir::Type ty, ModuleOp module, llvm::function_ref<InFlightDiagnostic()> emitError) const;
 
     bool hasTraitBound(::mlir::FlatSymbolRefAttr traitRefAttr) const {
       for (auto attr : getTraitBounds()) {
@@ -38,6 +38,8 @@ def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicMatcherInterface]>
       }
       return false;
     }
+
+    SmallVector<trait::TraitOp> getTraits(ModuleOp module) const;
   }];
 
   let parameters = (ins

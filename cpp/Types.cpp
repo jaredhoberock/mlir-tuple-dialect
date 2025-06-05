@@ -21,17 +21,36 @@ bool allElementTypesHaveImpl(TupleType tuple_ty, mlir::trait::TraitOp traitOp) {
   return firstElementTypeWithoutImplForTrait(tuple_ty, traitOp) == std::nullopt;
 }
 
-bool AnyTupleType::matches(Type ty, mlir::trait::TraitOp& traitOp) const {
+SmallVector<trait::TraitOp> AnyTupleType::getTraits(ModuleOp module) const {
+  SmallVector<trait::TraitOp> result;
+  for (FlatSymbolRefAttr traitBound : getTraitBounds()) {
+    auto traitOp = mlir::SymbolTable::lookupNearestSymbolFrom<trait::TraitOp>(module, traitBound);
+    if (traitOp)
+      result.push_back(traitOp);
+  }
+  return result;
+}
+
+LogicalResult AnyTupleType::unifyWith(
+    Type ty, 
+    ModuleOp module, 
+    llvm::function_ref<InFlightDiagnostic()> emitError) const {
   if (AnyTupleType symbolic_tuple = llvm::dyn_cast<AnyTupleType>(ty)) {
-    // ty is a symbolic !tuple.any<[...]>
-    // check that it has a trait bound for traitOp
-    return symbolic_tuple.hasTraitBound(FlatSymbolRefAttr::get(getContext(), traitOp.getSymName()));
+    // ty is a symbolic tuple; just check for equality
+    // XXX we should maybe check that all of our trait bounds are a subset of those of ty's
+    if (*this == symbolic_tuple)
+      return success();
+    return emitError() << "type mismatch: expected '" << *this << "', got '" << symbolic_tuple << "'";
   } else if (TupleType concrete_tuple = llvm::dyn_cast<TupleType>(ty)) {
     // ty is a concrete tuple type
-    // check that each of ty's element types has an impl for trait
-    return allElementTypesHaveImpl(concrete_tuple, traitOp);
+    // check that each of ty's element types has an impl for each one of our trait bounds
+    for (trait::TraitOp traitOp : getTraits(module)) {
+      if (!allElementTypesHaveImpl(concrete_tuple, traitOp))
+        return emitError() << "'" << concrete_tuple << "' element types lack required `trait.impl`s";
+    }
+    return success();
   }
-  return false;
+  return emitError() << "type mismatch: expected a tuple type, got '" << ty << "'";
 }
 
 void TupleDialect::registerTypes() {
