@@ -30,7 +30,7 @@ def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicMatcherInterface]>
 
   let extraClassDeclaration = [{
     // for SymbolicMatcherInterface
-    bool matches(::mlir::Type ty, ::mlir::trait::TraitOp& trait) const;
+    bool matches(::mlir::Type ty, ModuleOp module) const;
 
     bool hasTraitBound(::mlir::FlatSymbolRefAttr traitRefAttr) const {
       for (auto attr : getTraitBounds()) {
@@ -38,6 +38,8 @@ def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicMatcherInterface]>
       }
       return false;
     }
+
+    SmallVector<trait::TraitOp> getTraits(ModuleOp module) const;
   }];
 
   let parameters = (ins
