@@ -1,3 +1,4 @@
+#include "Canonicalization.hpp"
 #include "ConvertToTrait.hpp"
 #include "Dialect.hpp"
 #include "Ops.hpp"
@@ -375,6 +376,9 @@ struct CmpOpPartialOrdNonStrictLowering : OpRewritePattern<CmpOp> {
 };
 
 void populateTupleToTraitConversionPatterns(RewritePatternSet& patterns) {
+  // canonicalizing tuple.map involves monomorphization
+  populateTupleCanonicalizationPatterns(patterns);
+
   patterns.add<
     CmpOpPartialEqLowering,
     CmpOpPartialOrdNonStrictLowering,

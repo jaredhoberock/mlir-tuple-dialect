@@ -55,7 +55,7 @@ struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
   }
 };
 
-void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) const {
+void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<MapOpCanonicalization>(patterns.getContext());
 }
 

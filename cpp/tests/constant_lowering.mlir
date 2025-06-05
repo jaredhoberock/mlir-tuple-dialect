@@ -25,9 +25,9 @@ func.func @single_constant(%arg0: i64) -> tuple<i64> {
 // CHECK-LABEL: llvm.func @pair_constant
 // CHECK-NOT: builtin.unrealized_conversion_cast
 // CHECK: llvm.return
-func.func @pair_constant(%arg0: i32, %arg1: i32) -> tuple<i32,i32> {
-  %c = tuple.constant(%arg0, %arg1 : i32, i32) : tuple<i32,i32>
-  return %c : tuple<i32,i32>
+func.func @pair_constant(%arg0: i32, %arg1: f32) -> tuple<i32,f32> {
+  %c = tuple.constant(%arg0, %arg1 : i32, f32) : tuple<i32,f32>
+  return %c : tuple<i32,f32>
 }
 
 // -----
@@ -35,9 +35,9 @@ func.func @pair_constant(%arg0: i32, %arg1: i32) -> tuple<i32,i32> {
 // CHECK-LABEL: func @nested_constant
 // CHECK-NOT: builtin.unrealized_conversion_cast
 // CHECK: llvm.return
-func.func @nested_constant(%a: i64, %b: tuple<i64,i64>) -> tuple<i64,tuple<i64,i64>> {
-  %c = tuple.constant(%a, %b : i64, tuple<i64,i64>) : tuple<i64,tuple<i64,i64>>
-  return %c : tuple<i64,tuple<i64,i64>>
+func.func @nested_constant(%a: i64, %b: tuple<i64,f64>) -> tuple<i64,tuple<i64,f64>> {
+  %c = tuple.constant(%a, %b : i64, tuple<i64,f64>) : tuple<i64,tuple<i64,f64>>
+  return %c : tuple<i64,tuple<i64,f64>>
 }
 
 // -----
@@ -45,9 +45,9 @@ func.func @nested_constant(%a: i64, %b: tuple<i64,i64>) -> tuple<i64,tuple<i64,i
 // CHECK-LABEL: func @nested_middle_constant
 // CHECK-NOT: builtin.unrealized_conversion_cast
 // CHECK: llvm.return
-func.func @nested_middle_constant(%arg0: i64, %arg1: tuple<i64,i64>, %arg2: i64) -> tuple<i64,tuple<i64,i64>,i64> {
-  %c = tuple.constant(%arg0, %arg1, %arg2 : i64, tuple<i64,i64>, i64) : tuple<i64,tuple<i64,i64>,i64>
-  return %c : tuple<i64,tuple<i64,i64>,i64>
+func.func @nested_middle_constant(%arg0: i64, %arg1: tuple<f64,f64>, %arg2: i64) -> tuple<i64,tuple<f64,f64>,i64> {
+  %c = tuple.constant(%arg0, %arg1, %arg2 : i64, tuple<f64,f64>, i64) : tuple<i64,tuple<f64,f64>,i64>
+  return %c : tuple<i64,tuple<f64,f64>,i64>
 }
 
 // -----

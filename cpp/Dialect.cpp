@@ -1,3 +1,4 @@
+#include "Canonicalization.hpp"
 #include "ConvertToLLVM.hpp"
 #include "ConvertToTrait.hpp"
 #include "Dialect.hpp"
@@ -45,6 +46,10 @@ void TupleDialect::initialize() {
     ConvertToLLVMInterface,
     ConvertToTraitInterface
   >();
+}
+
+void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) const {
+  populateTupleCanonicalizationPatterns(patterns);
 }
 
 }
