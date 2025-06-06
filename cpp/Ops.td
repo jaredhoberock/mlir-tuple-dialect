@@ -18,6 +18,20 @@ def ConcreteTuple : TypeConstraint<
   CPred<"::mlir::TupleType::classof($_self)">,
   "any concrete tuple type">;
 
+def AppendOp : TupleOp<"append", [Pure]> {
+  let summary = "Append a element to the end of a tuple";
+  let description = [{
+    Creates a new `tuple` value from an existing `tuple` and element to append.
+  }];
+
+  let arguments = (ins Tuple:$tuple, AnyType:$element);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$tuple `,` $element `:` type($tuple) `,` type($element) `->` type($result) attr-dict";
+
+  let hasVerifier = 1;
+}
+
 def ConstantOp : TupleOp<"constant", [Pure]> {
   let summary = "Construct a constant tuple value";
   let description = [{

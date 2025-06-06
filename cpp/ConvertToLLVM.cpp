@@ -7,6 +7,47 @@
 
 namespace mlir::tuple {
 
+struct AppendOpLowering : OpConversionPattern<AppendOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(AppendOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto inputTupleTy = dyn_cast_or_null<TupleType>(op.getTuple().getType());
+    if (!inputTupleTy)
+      return rewriter.notifyMatchFailure(op, "unsupported input tuple type");
+
+    auto resultTupleTy = dyn_cast_or_null<TupleType>(op.getResult().getType());
+    if (!resultTupleTy)
+      return rewriter.notifyMatchFailure(op, "unsupported result tuple type");
+
+    auto loc = op.getLoc();
+
+    // get the lowered result struct type
+    auto resultStructTy = cast<LLVM::LLVMStructType>(getTypeConverter()->convertType(resultTupleTy));
+
+    // start with an undefined struct
+    Value result = rewriter.create<LLVM::UndefOp>(loc, resultStructTy);
+
+    // extract each field from the input tuple and insert into result
+    Value inputStruct = adaptor.getTuple();
+    for (auto idx : llvm::seq<unsigned>(0, inputTupleTy.size())) {
+      Value field = rewriter.create<LLVM::ExtractValueOp>(
+        loc, inputStruct, idx);
+
+      result = rewriter.create<LLVM::InsertValueOp>(
+        loc, result, field, idx);
+    }
+
+    // insert the appended element as the last field
+    result = rewriter.create<LLVM::InsertValueOp>(
+      loc, result, adaptor.getElement(), inputTupleTy.size());
+
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -88,6 +129,7 @@ void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rew
 
   // add LLVM-specific lowering patterns
   patterns.add<
+    AppendOpLowering,
     ConstantOpLowering,
     GetOpLowering
   >(typeConverter, patterns.getContext());

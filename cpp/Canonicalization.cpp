@@ -6,6 +6,29 @@
 
 namespace mlir::tuple {
 
+struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AppendOp appendOp,
+                                PatternRewriter& rewriter) const override {
+    // check if the input tuple came from tuple.constant
+    auto constantOp = appendOp.getTuple().getDefiningOp<ConstantOp>();
+    if (!constantOp)
+      return failure();
+
+    // replace with tuple.constant
+    SmallVector<Value> elements(constantOp.getElements());
+    elements.push_back(appendOp.getElement());
+
+    rewriter.replaceOpWithNewOp<ConstantOp>(
+      appendOp,
+      elements
+    );
+
+    return success();
+  }
+};
+
 struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -56,7 +79,10 @@ struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
 };
 
 void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
-  patterns.add<MapOpCanonicalization>(patterns.getContext());
+  patterns.add<
+    AppendOpCanonicalization,
+    MapOpCanonicalization
+  >(patterns.getContext());
 }
 
 } // end mlir::tuple

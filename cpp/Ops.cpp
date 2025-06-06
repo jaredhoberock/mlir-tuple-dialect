@@ -1,13 +1,47 @@
 #include "Dialect.hpp"
 #include "Ops.hpp"
 #include "Types.hpp"
-#include <mlir/IR/Builders.h>
 #include <iostream>
+#include <mlir/IR/Builders.h>
+#include <mlir-trait-dialect/cpp/Types.hpp>
 
 #define GET_OP_CLASSES
 #include "Ops.cpp.inc"
 
 namespace mlir::tuple {
+
+LogicalResult AppendOp::verify() {
+  MLIRContext* ctx = getContext();
+
+  // tuple.append has two modes
+  // 1. concrete mode: input tuple is tuple, result type must also be TupleType
+  // 2. polymorphic mode: input tuple is !tuple.any, result type must be !trait.poly
+  Type inputTy = getTuple().getType();
+
+  // if input type is tuple<a,b,c>
+  if (TupleType concreteTupleTy = dyn_cast<TupleType>(inputTy)) {
+    // expected result type is tuple<a,b,c,d>
+    SmallVector<Type> resultTypes(concreteTupleTy.getTypes());
+    resultTypes.push_back(getElement().getType());
+    Type expectedResultTy = TupleType::get(ctx, resultTypes);
+
+    if (expectedResultTy != getResult().getType())
+      return emitOpError() << "type mismatch: expected '" << expectedResultTy << "'"
+                           << "got '" << getResult().getType() << "'";
+    return success();
+  }
+
+  // if input type is !tuple.any
+  if (AnyTupleType polyTupleTy = dyn_cast<AnyTupleType>(inputTy)) {
+    // expected result type is !trait.poly
+    if (!isa<trait::PolyType>(getResult().getType()))
+      return emitOpError() << "type mismatch: expected '!trait.poly', got '"
+                           << getResult().getType() << "'";
+    return success();
+  }
+
+  return emitError() << "unsupported type for input tuple: '" << inputTy << "'";
+}
 
 LogicalResult ConstantOp::verify() {
   auto tupleTy = dyn_cast<TupleType>(getResult().getType());
