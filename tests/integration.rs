@@ -129,8 +129,8 @@ fn build_test1_func<'c>(
     // func.func @test1() -> i1 {
     //   %a_0 = arith.constant 7 : i32
     //   %b_0 = arith.constant 7 : i32
-    //   %a = tuple.constant(%a_0 : i32) : tuple<i32>
-    //   %b = tuple.constant(%b_0 : i32) : tuple<i32>
+    //   %a = tuple.make(%a_0 : i32) : tuple<i32>
+    //   %b = tuple.make(%b_0 : i32) : tuple<i32>
     //   %r = tuple.cmp eq, %a, %b : !str.string
     //   return %r : i1
     // }
@@ -152,12 +152,12 @@ fn build_test1_func<'c>(
           loc,
         )).result(0).unwrap().into();
 
-        let a = block.append_operation(tuple::constant(
+        let a = block.append_operation(tuple::make(
             loc,
             &[a_0],
         )).result(0).unwrap().into();
 
-        let b = block.append_operation(tuple::constant(
+        let b = block.append_operation(tuple::make(
             loc,
             &[b_0],
         )).result(0).unwrap().into();

@@ -10,7 +10,7 @@ extern "C" {
 
 void tupleRegisterDialect(MlirContext ctx);
 
-MlirOperation tupleConstantOpCreate(MlirLocation loc, MlirValue* elements, intptr_t nElements);
+MlirOperation tupleMakeOpCreate(MlirLocation loc, MlirValue* elements, intptr_t nElements);
 
 MlirOperation tupleGetOpCreate(MlirLocation loc, MlirValue tuple, int64_t index);
 

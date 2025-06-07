@@ -14,7 +14,7 @@ void tupleRegisterDialect(MlirContext context) {
   unwrap(context)->loadDialect<TupleDialect>();
 }
 
-MlirOperation tupleConstantOpCreate(MlirLocation loc, MlirValue* elements, intptr_t nElements) {
+MlirOperation tupleMakeOpCreate(MlirLocation loc, MlirValue* elements, intptr_t nElements) {
   MLIRContext* ctx = unwrap(loc)->getContext();
   OpBuilder builder(ctx);
 
@@ -22,7 +22,7 @@ MlirOperation tupleConstantOpCreate(MlirLocation loc, MlirValue* elements, intpt
   for (intptr_t i = 0; i < nElements; ++i)
     elementVals.push_back(unwrap(elements[i]));
 
-  auto op = builder.create<ConstantOp>(
+  auto op = builder.create<MakeOp>(
       unwrap(loc),
       elementVals
   );

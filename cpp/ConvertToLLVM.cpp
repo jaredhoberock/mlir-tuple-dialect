@@ -48,11 +48,11 @@ struct AppendOpLowering : OpConversionPattern<AppendOp> {
   }
 };
 
-struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
+struct MakeOpLowering : OpConversionPattern<MakeOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(ConstantOp op, OpAdaptor adaptor,
+  matchAndRewrite(MakeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto tupleTy = cast<TupleType>(op.getResult().getType());
     Location loc = op.getLoc();
@@ -130,7 +130,7 @@ void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rew
   // add LLVM-specific lowering patterns
   patterns.add<
     AppendOpLowering,
-    ConstantOpLowering,
+    MakeOpLowering,
     GetOpLowering
   >(typeConverter, patterns.getContext());
 }

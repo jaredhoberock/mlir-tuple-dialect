@@ -11,16 +11,16 @@ struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
 
   LogicalResult matchAndRewrite(AppendOp appendOp,
                                 PatternRewriter& rewriter) const override {
-    // check if the input tuple came from tuple.constant
-    auto constantOp = appendOp.getTuple().getDefiningOp<ConstantOp>();
-    if (!constantOp)
+    // check if the input tuple came from tuple.make
+    auto makeOp = appendOp.getTuple().getDefiningOp<MakeOp>();
+    if (!makeOp)
       return failure();
 
-    // replace with tuple.constant
-    SmallVector<Value> elements(constantOp.getElements());
+    // replace with tuple.make
+    SmallVector<Value> elements(makeOp.getElements());
     elements.push_back(appendOp.getElement());
 
-    rewriter.replaceOpWithNewOp<ConstantOp>(
+    rewriter.replaceOpWithNewOp<MakeOp>(
       appendOp,
       elements
     );
@@ -72,7 +72,7 @@ struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
     }
 
     // replace the map op with the assembled result tuple
-    rewriter.replaceOpWithNewOp<ConstantOp>(mapOp, results);
+    rewriter.replaceOpWithNewOp<MakeOp>(mapOp, results);
 
     return success();
   }

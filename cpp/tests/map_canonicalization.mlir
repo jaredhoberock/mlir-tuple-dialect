@@ -5,7 +5,7 @@
 
 // CHECK-LABEL: func @map_i64_to_f32
 // CHECK: tuple.get %arg0, 0
-// CHECK: tuple.constant
+// CHECK: tuple.make
 func.func @map_i64_to_f32(%arg0: tuple<i64>) -> tuple<f32> {
   %res = tuple.map %arg0 : tuple<i64> -> tuple<f32> {
   ^bb0(%x: i64):
@@ -21,7 +21,7 @@ func.func @map_i64_to_f32(%arg0: tuple<i64>) -> tuple<f32> {
 // CHECK-LABEL: func @map_i64_i64_to_f32_f32
 // CHECK: tuple.get %arg0, 0
 // CHECK: tuple.get %arg0, 1
-// CHECK: tuple.constant
+// CHECK: tuple.make
 func.func @map_i64_i64_to_f32_f32(%arg0: tuple<i64,i64>) -> tuple<f32,f32> {
   %res = tuple.map %arg0 : tuple<i64,i64> -> tuple<f32,f32> {
   ^bb0(%x: i64):
@@ -53,7 +53,7 @@ trait.impl @Id for f32 {
 // CHECK-LABEL: func @map_id_i32_f32
 // CHECK: tuple.get %arg0, 0
 // CHECK: tuple.get %arg0, 1
-// CHECK: tuple.constant
+// CHECK: tuple.make
 !T = !trait.poly<0,[@Id]>
 func.func @map_id_i32_f32(%arg0: tuple<i32,f32>) -> tuple<i32,f32> {
   %res = tuple.map %arg0 : tuple<i32,f32> -> tuple<i32,f32> {

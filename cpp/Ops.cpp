@@ -43,7 +43,7 @@ LogicalResult AppendOp::verify() {
   return emitError() << "unsupported type for input tuple: '" << inputTy << "'";
 }
 
-LogicalResult ConstantOp::verify() {
+LogicalResult MakeOp::verify() {
   auto tupleTy = dyn_cast<TupleType>(getResult().getType());
   if (!tupleTy)
     return emitOpError("result must be a tuple type");
