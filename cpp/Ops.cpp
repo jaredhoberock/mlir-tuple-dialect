@@ -271,16 +271,15 @@ LogicalResult MapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   Location loc = getLoc();
   MLIRContext *ctx = getContext();
 
-  // Get input tuple types and arity
+  // Get input tuple types
   SmallVector<TupleType> inputTupleTypes = getInputTupleTypes();
-  size_t arity = inputTupleTypes[0].size();
 
   // treat the body as if it is a callee and get its function type
   FunctionType calleeTy = getBodyFunctionType();
 
   // for each tuple element,
   // unify "iteration" i of the body
-  for (size_t i = 0; i < arity; ++i) {
+  for (size_t i = 0; i < getArity(); ++i) {
     // check iteration i like a function call
     // collect a FunctionType for iteration i: these are the call arguments
     FunctionType callerTy = getFunctionTypeForIteration(i);
@@ -290,6 +289,98 @@ LogicalResult MapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
     if (failed(trait::unifyTypes(loc, calleeTy, callerTy, moduleOp, substitution)))
       return failure();
   }
+
+  return success();
+}
+
+YieldOp FoldlOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
+    unsigned int i, 
+    Type resultTypeOfPreviousIteration) {
+  Location loc = getLoc();
+  ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
+
+  Type expectedTy0 = getBody().front().getArgumentTypes()[0];
+  Type expectedTy1 = getBody().front().getArgumentTypes()[1];
+
+  llvm::DenseMap<Type,Type> substitution;
+
+  // we unify the resultTypeOfPreviousIteration with the body's zeroth block parameter type
+  if (failed(trait::unifyTypes(loc, expectedTy0, resultTypeOfPreviousIteration, module, substitution))) {
+    // this should never happen if FoldlOp::verifySymbolUses succeeds
+    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+  }
+
+  // we unify the ith tuple element type with the body's first block parameter type
+  if (failed(trait::unifyTypes(loc, expectedTy1, getTupleType().getType(i), module, substitution))) {
+    // this should never happen if FoldlOp::verifySymbolUses succeeds
+    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+  }
+
+  return substitution;
+}
+
+LogicalResult FoldlOp::verify() {
+  // check body block
+  Block &bodyBlock = getBody().front();
+
+  // check body argument count is 2
+  if (bodyBlock.getNumArguments() != 2)
+    return emitOpError("body block must have 2 arguments, got ")
+           << bodyBlock.getNumArguments();
+
+  // check that the body block is terminated with YieldOp
+  if (bodyBlock.empty())
+    return emitOpError("body block cannot be empty");
+  if (!isa<YieldOp>(bodyBlock.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << bodyBlock.back().getName();
+
+  return success();
+}
+
+LogicalResult FoldlOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // look for the enclosing ModuleOp
+  auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
+  if (!moduleOp)
+    return emitOpError("not contained in a module");
+
+  Location loc = getLoc();
+  MLIRContext* ctx = getContext();
+
+  // get input tuple type
+  TupleType tupleTy = getTupleType();
+
+  // for each tuple element,
+  // unify iteration i of the body *in isolation*
+  // in other words, we use a separate substitution for each iteration
+  Type previousIterationResultType = getInit().getType();
+  for (size_t i = 0; i < getArity(); ++i) {
+    // unify types involved in iteration i
+    Type foundTy0 = previousIterationResultType;
+    Type foundTy1 = tupleTy.getType(i);
+
+    Type expectedTy0 = getBody().front().getArgumentTypes()[0];
+    Type expectedTy1 = getBody().front().getArgumentTypes()[1];
+
+    llvm::DenseMap<Type,Type> substitution;
+    if (failed(trait::unifyTypes(loc, expectedTy0, foundTy0, moduleOp, substitution)))
+      return failure();
+    if (failed(trait::unifyTypes(loc, expectedTy1, foundTy1, moduleOp, substitution)))
+      return failure();
+
+    // update the previous result type by applying the substitution to the body's yield type
+    previousIterationResultType = trait::applySubstitution(substitution, bodyYield().getOperand().getType());
+  }
+
+  // unify the final result type with the ascribed result type
+  llvm::DenseMap<Type,Type> substitution;
+  if (failed(trait::unifyTypes(loc, previousIterationResultType, getResult().getType(),
+                               moduleOp, substitution)))
+    return failure();
 
   return success();
 }

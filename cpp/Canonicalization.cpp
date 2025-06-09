@@ -29,6 +29,51 @@ struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
   }
 };
 
+struct FoldlOpCanonicalization : public OpRewritePattern<FoldlOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FoldlOp op,
+                                PatternRewriter& rewriter) const override {
+    Location loc = op.getLoc();
+
+    Region &body = op.getBody();
+    Block &entry = body.front();
+
+    Value previousResult = op.getInit();
+    for (unsigned int i = 0; i < op.getArity(); ++i) {
+      // get the ith element from the input tuple
+      Value element = rewriter.create<GetOp>(loc, op.getTuple(), i);
+
+      // build the type substitution for this iteration
+      DenseMap<Type,Type> substitution = op.buildSubstitutionForIteration(i, previousResult.getType());
+
+      // instantiate the body into a temporary Region
+      Region bodyInstance;
+      trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, substitution);
+
+      // get the block to inline
+      Block* blockToInline = &bodyInstance.front();
+
+      // before inlining, find the block's YieldOp
+      YieldOp yieldOp = cast<YieldOp>(blockToInline->getTerminator());
+
+      // inline the block, replacing block arguments with the previous result and tuple element
+      rewriter.inlineBlockBefore(blockToInline, op, {previousResult, element});
+
+      // now that the yield op has been inlined, grab its operand
+      previousResult = yieldOp.getOperand();
+
+      // erase the yield
+      rewriter.eraseOp(yieldOp);
+    }
+
+    // replace the foldl op with the result of the final iteration
+    rewriter.replaceOp(op, previousResult);
+
+    return success();
+  }
+};
+
 struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -81,6 +126,7 @@ struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
 void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<
     AppendOpCanonicalization,
+    FoldlOpCanonicalization,
     MapOpCanonicalization
   >(patterns.getContext());
 }

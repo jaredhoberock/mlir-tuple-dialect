@@ -69,6 +69,47 @@ def CmpOp : TupleOp<"cmp", [
   let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict `:` type($lhs)";
 }
 
+def FoldlOp : TupleOp<"foldl", [
+  AutomaticAllocationScope,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  OpAsmOpInterface
+]> {
+  let summary = "Accumulate a state left to right across tuple elements";
+  let description = [{
+    `tuple.foldl` executes a region sequentially on each element of tuple
+    while accumulating a state. The final state is returned as the result of
+    the `tuple.foldl`.
+  }];
+
+  let arguments = (ins AnyType:$init, ConcreteTuple:$tuple);
+  let results = (outs AnyType:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    unsigned int getArity() {
+      return getTupleType().size();
+    }
+
+    llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
+
+    TupleType getTupleType() {
+      return cast<TupleType>(getTuple().getType());
+    }
+
+    YieldOp bodyYield();
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Allow the dialect prefix to be omitted.
+    static StringRef getDefaultDialect() { return "tuple"; }
+  }];
+
+  let assemblyFormat = "$init `,` $tuple attr-dict `:` type($init) `,` type($tuple) `->` type($result) $body";
+  let hasVerifier = 1;
+}
+
 def GetOp : TupleOp<"get", [Pure]> {
   let summary = "Extract an element from a tuple";
   let description = [{
@@ -179,7 +220,7 @@ def MapOp : TupleOp<"map", [
 }
 
 def YieldOp : TupleOp<"yield", [
-  HasParent<"MapOp">,
+  ParentOneOf<["FoldlOp","MapOp"]>,
   Pure,
   ReturnLike,
   Terminator

@@ -376,7 +376,7 @@ struct CmpOpPartialOrdNonStrictLowering : OpRewritePattern<CmpOp> {
 };
 
 void populateTupleToTraitConversionPatterns(RewritePatternSet& patterns) {
-  // canonicalizing tuple.map involves monomorphization
+  // canonicalizing tuple.map and tuple.foldl involves monomorphization
   populateTupleCanonicalizationPatterns(patterns);
 
   patterns.add<
