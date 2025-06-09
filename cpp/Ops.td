@@ -81,22 +81,29 @@ def FoldlOp : TupleOp<"foldl", [
     the `tuple.foldl`.
   }];
 
-  let arguments = (ins AnyType:$init, ConcreteTuple:$tuple);
+  let arguments = (ins AnyType:$init, Variadic<AnyType>:$inputs);
   let results = (outs AnyType:$result);
   let regions = (region SizedRegion<1>:$body);
 
   let extraClassDeclaration = [{
     unsigned int getArity() {
-      return getTupleType().size();
+      return getInputTupleTypes()[0].size();
     }
 
     llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
 
-    TupleType getTupleType() {
-      return cast<TupleType>(getTuple().getType());
+    SmallVector<TupleType> getInputTupleTypes() {
+      SmallVector<TupleType> result;
+      for (auto input: getInputs()) {
+        result.push_back(cast<TupleType>(input.getType()));
+      }
+      return result;
     }
 
     YieldOp bodyYield();
+
+    FunctionType getBodyFunctionType();
+    FunctionType getFunctionTypeForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
 
     //===------------------------------------------------------------------===//
     // OpAsmOpInterface Methods
@@ -106,7 +113,7 @@ def FoldlOp : TupleOp<"foldl", [
     static StringRef getDefaultDialect() { return "tuple"; }
   }];
 
-  let assemblyFormat = "$init `,` $tuple attr-dict `:` type($init) `,` type($tuple) `->` type($result) $body";
+  let assemblyFormat = "$init `,` $inputs attr-dict `:` type($init) `,` type($inputs) `->` type($result) $body";
   let hasVerifier = 1;
 }
 

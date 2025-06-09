@@ -297,25 +297,37 @@ YieldOp FoldlOp::bodyYield() {
   return cast<YieldOp>(getBody().front().back());
 }
 
+FunctionType FoldlOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+FunctionType FoldlOp::getFunctionTypeForIteration(
+    unsigned int i,
+    Type resultTypeOfPreviousIteration) {
+  SmallVector<Type> argumentTypes;
+  argumentTypes.push_back(resultTypeOfPreviousIteration);
+  for (TupleType input : getInputTupleTypes())
+    argumentTypes.push_back(input.getType(i));
+
+  return FunctionType::get(
+      getContext(),
+      argumentTypes,
+      bodyYield().getOperand().getType()
+  );
+}
+
 llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
     unsigned int i, 
     Type resultTypeOfPreviousIteration) {
-  Location loc = getLoc();
-  ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
-
-  Type expectedTy0 = getBody().front().getArgumentTypes()[0];
-  Type expectedTy1 = getBody().front().getArgumentTypes()[1];
+  auto bodyTy = getBodyFunctionType();
+  auto iterationTy = getFunctionTypeForIteration(i, resultTypeOfPreviousIteration);
 
   llvm::DenseMap<Type,Type> substitution;
-
-  // we unify the resultTypeOfPreviousIteration with the body's zeroth block parameter type
-  if (failed(trait::unifyTypes(loc, expectedTy0, resultTypeOfPreviousIteration, module, substitution))) {
-    // this should never happen if FoldlOp::verifySymbolUses succeeds
-    llvm_unreachable("buildSubstitutionForIteration: unification failed");
-  }
-
-  // we unify the ith tuple element type with the body's first block parameter type
-  if (failed(trait::unifyTypes(loc, expectedTy1, getTupleType().getType(i), module, substitution))) {
+  if (failed(trait::unifyTypes(getLoc(), bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), substitution))) {
     // this should never happen if FoldlOp::verifySymbolUses succeeds
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
   }
@@ -324,12 +336,38 @@ llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
 }
 
 LogicalResult FoldlOp::verify() {
+  // check that we have at least one input tuple
+  if (getInputs().empty())
+    return emitOpError("expected at least one input tuple");
+
+  // verify all inputs are TupleType and collect their arities 
+  SmallVector<TupleType> inputTupleTypes;
+  size_t expectedArity = 0;
+
+  for (auto [i, input] : llvm::enumerate(getInputs())) {
+    auto tupleType = dyn_cast<TupleType>(input.getType());
+    if (!tupleType)
+      return emitOpError("input tuple #") << i << " must be a 'tuple', got "
+                                    << input.getType();
+    inputTupleTypes.push_back(tupleType);
+
+    // check arity consistency
+    if (i == 0) {
+      expectedArity = tupleType.size();
+    } else if (tupleType.size() != expectedArity) {
+      return emitOpError("all input tuples must have the same arity, expected ")
+             << expectedArity << " but tuple #" << i << " has arity "
+             << tupleType.size();
+    }
+  }
+
   // check body block
   Block &bodyBlock = getBody().front();
 
-  // check body argument count is 2
-  if (bodyBlock.getNumArguments() != 2)
-    return emitOpError("body block must have 2 arguments, got ")
+  // check body argument count matches the number of inputs
+  if (bodyBlock.getNumArguments() != 1 + getInputs().size())
+    return emitOpError("body block must have ") << 1 + getInputs().size()
+           << " arguments to match the number of inputs, got "
            << bodyBlock.getNumArguments();
 
   // check that the body block is terminated with YieldOp
@@ -351,25 +389,23 @@ LogicalResult FoldlOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   Location loc = getLoc();
   MLIRContext* ctx = getContext();
 
-  // get input tuple type
-  TupleType tupleTy = getTupleType();
+  // get input tuple types
+  SmallVector<TupleType> inputTupleTypes = getInputTupleTypes();
+
+  // treat the body as if it is a callee and get its function type
+  FunctionType calleeTy = getBodyFunctionType();
 
   // for each tuple element,
-  // unify iteration i of the body *in isolation*
-  // in other words, we use a separate substitution for each iteration
+  // unify "iteration" i of the body *in isolation*
   Type previousIterationResultType = getInit().getType();
   for (size_t i = 0; i < getArity(); ++i) {
-    // unify types involved in iteration i
-    Type foundTy0 = previousIterationResultType;
-    Type foundTy1 = tupleTy.getType(i);
+    // check iteration i like a funciton call
+    // collect a FunctionType for iteration i: these are the call arguments
+    FunctionType callerTy = getFunctionTypeForIteration(i, previousIterationResultType);
 
-    Type expectedTy0 = getBody().front().getArgumentTypes()[0];
-    Type expectedTy1 = getBody().front().getArgumentTypes()[1];
-
+    // unify each iteration in isolation like a separate function call
     llvm::DenseMap<Type,Type> substitution;
-    if (failed(trait::unifyTypes(loc, expectedTy0, foundTy0, moduleOp, substitution)))
-      return failure();
-    if (failed(trait::unifyTypes(loc, expectedTy1, foundTy1, moduleOp, substitution)))
+    if (failed(trait::unifyTypes(loc, calleeTy, callerTy, moduleOp, substitution)))
       return failure();
 
     // update the previous result type by applying the substitution to the body's yield type

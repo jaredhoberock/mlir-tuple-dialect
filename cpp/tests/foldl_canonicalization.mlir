@@ -28,3 +28,18 @@ func.func @fold_mixed_tuple(%init: i32, %tup: tuple<i32,tuple<>,i64,tuple<f64>>)
   }
   return %res : tuple<f64>
 }
+
+// -----
+// two input tuples
+
+// CHECK-LABEL func @fold_two_input_tuples
+// CHECK tuple.get %a, 1
+// CHECK tuple.get %b, 1
+func.func @fold_two_input_tuples(%init: tuple<i32,i32>, %a: tuple<i32,i32>, %b: tuple<i32,i32>) -> tuple<i32,i32> {
+  %res = tuple.foldl %init, %a, %b : tuple<i32,i32>, tuple<i32,i32>, tuple<i32,i32> -> tuple<i32,i32> {
+  ^bb0(%acc: tuple<i32,i32>, %e_a: i32, %e_b: i32):
+    %pair = tuple.make(%e_a, %e_b : i32, i32) : tuple<i32,i32>
+    yield %pair : tuple<i32,i32>
+  }
+  return %res : tuple<i32,i32>
+}

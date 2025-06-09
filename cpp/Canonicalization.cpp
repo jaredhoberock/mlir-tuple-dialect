@@ -41,8 +41,14 @@ struct FoldlOpCanonicalization : public OpRewritePattern<FoldlOp> {
 
     Value previousResult = op.getInit();
     for (unsigned int i = 0; i < op.getArity(); ++i) {
-      // get the ith element from the input tuple
-      Value element = rewriter.create<GetOp>(loc, op.getTuple(), i);
+      // create a vector of values to "pass" to the block below
+      SmallVector<Value> previousResultAndIthElements;
+      previousResultAndIthElements.push_back(previousResult);
+
+      // collect the ith element from each input tuple
+      for (Value tuple : op.getInputs()) {
+        previousResultAndIthElements.push_back(rewriter.create<GetOp>(loc, tuple, i));
+      }
 
       // build the type substitution for this iteration
       DenseMap<Type,Type> substitution = op.buildSubstitutionForIteration(i, previousResult.getType());
@@ -57,8 +63,8 @@ struct FoldlOpCanonicalization : public OpRewritePattern<FoldlOp> {
       // before inlining, find the block's YieldOp
       YieldOp yieldOp = cast<YieldOp>(blockToInline->getTerminator());
 
-      // inline the block, replacing block arguments with the previous result and tuple element
-      rewriter.inlineBlockBefore(blockToInline, op, {previousResult, element});
+      // inline the block, replacing block arguments with the previous result and the ith element of each tuple
+      rewriter.inlineBlockBefore(blockToInline, op, previousResultAndIthElements);
 
       // now that the yield op has been inlined, grab its operand
       previousResult = yieldOp.getOperand();
