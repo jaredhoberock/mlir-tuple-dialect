@@ -199,7 +199,6 @@ llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
 
   llvm::DenseMap<Type,Type> substitution;
   if (failed(trait::unifyTypes(getLoc(), bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), substitution))) {
-    // this should never happen if MapOp::verifySymbolUses succeeds
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
   }
 
