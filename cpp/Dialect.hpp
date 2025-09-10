@@ -8,9 +8,9 @@
 
 namespace mlir::tuple {
 
-inline bool isTuple(Type ty) {
-  // check if ty is the symbolic !tuple.any_tuple type
-  if (isa<AnyTupleType>(ty)) {
+inline bool isTupleLike(Type ty) {
+  // check if ty is the symbolic !tuple.poly type
+  if (isa<PolyType>(ty)) {
     return true;
   }
 

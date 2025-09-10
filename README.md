@@ -1,58 +1,71 @@
 # mlir-tuple-dialect
 
-An **MLIR** dialect that adds first-class support for statically-typed tuples and structural operations on them. It integrates with `mlir-trait-dialect` to enable **trait-bounded generic operations** on tuple types.
+An **MLIR dialect** that adds first-class support for tuples and structural operations on them.  
+It integrates with [`mlir-trait-dialect`](../mlir-trait-dialect) to enable **generic, trait-bounded operations** on tuple types, both concrete and polymorphic.
 
 ---
+
 ## Why?
-Many generic algorithms in Rust or C++ operate over tuple-like product types and assume trait bounds on the elements (e.g., "every element must be `PartialEq`"). To encode this structure in MLIR, we need:
 
-- Concrete tuple types: `tuple<i32, i32>`
-- Symbolic types with elementwise trait bounds: `!tuple.any<[@PartialEq]>`
-- Structural ops like `tuple.get`, `tuple.constant`, and `tuple.cmp`
+Many generic algorithms in Rust or C++ operate over tuple-like product types with trait bounds on elements (e.g. “all elements implement `PartialEq`” or “all elements implement `PartialOrd`”).  
+To encode this structure in MLIR, we need:
 
-This dialect provides those pieces, and supports **lowering to LLVM** via flattening to `vector<NxiN>` for homogeneous tuples.
+- **Concrete tuple types**:  
+  ```mlir
+  tuple<i32, tuple<i1, f64>>
+  ```
+
+- **Polymorphic tuple types** parameterized by type variables:
+  ```mlir
+  !tuple.poly<0>
+  ```
+
+- **Structural operations** such as:
+  - `tuple.make` - construct a tuple
+  - `tuple.get` - project a tuple element
+  - `tuple.map` / `tuple.foldl` - iterate structurally over tuple elements
+  - `tuple.cmp` - lexicographic comparison given elementwise trait claims
+
+This dialect provides those primitives, and works hand-in-hand with the trait dialect to enable both monomorphic and polymorphic code to be expressed naturally and lowered systematically.
 
 ---
-## Tiny example
 
-The snippet below defines a generic `PartialEq` implementation for all tuples whose elements implement `PartialEq`, and uses `tuple.cmp` to compare them:
+## Example: tuple equality
 
-<details>
-<summary>Click to expand MLIR</summary>
+The snippet below shows a call to `tuple.cmp eq` on a pair of `i64`s.
+During impl resolution, the tuple dialect generates the necessary impls of `PartialEq` for tuples, relying on an elementwise impl of `PartialEq[i64,i64]`.
 
 ```mlir
-trait.trait @PartialEq {
-  func.func private @eq(!trait.self, !trait.self) -> i1
+trait.trait @PartialEq[!S,!O] {
+  func.func private @eq(!S, !O) -> i1
 }
 
-// generic impl for any tuple whose elements have PartialEq
-!T = !tuple.any<[@PartialEq]>
-trait.impl @PartialEq for !T {
-  func.func private @eq(%a: !T, %b: !T) -> i1 {
-    %res = tuple.cmp eq, %a, %b : !T
+trait.impl for @PartialEq[i64,i64] {
+  func.func private @eq(%a: i64, %b: i64) -> i1 {
+    %res = arith.cmpi eq, %a, %b : i64
     return %res : i1
   }
 }
 
-// call the generic impl with a concrete type
-func.func @check(%x: tuple<i32, i32>, %y: tuple<i32, i32>) -> i1 {
-  %r = trait.method.call @PartialEq::@eq<tuple<i32, i32>>(%x, %y)
-       : (!trait.self, !trait.self) -> i1 to (tuple<i32, i32>, tuple<i32, i32>) -> i1
-  return %r : i1
+func.func @eq_i64_pair(%x: tuple<i64,i64>, %y: tuple<i64,i64>) -> i1 {
+  %res = tuple.cmp eq, %x, %y : tuple<i64,i64>, tuple<i64,i64>
+  return %res : i1
 }
 ```
-</details>
 
-<details>
-<summary>Lowered to LLVM</summary>
+After impl resolution and monomorphization, the operation is lowered into elementwise comparisons:
+
+```mlir
+func.func @eq_i64_pair(%x: tuple<i64,i64>, %y: tuple<i64,i64>) -> i1 {
+  %0 = tuple.get %x, 0 : tuple<i64,i64> -> i64
+  %1 = tuple.get %y, 0 : tuple<i64,i64> -> i64
+  %2 = arith.cmpi eq, %0, %1 : i64
+
+  %3 = tuple.get %x, 1 : tuple<i64,i64> -> i64
+  %4 = tuple.get %y, 1 : tuple<i64,i64> -> i64
+  %5 = arith.cmpi eq, %3, %4 : i64
+
+  %6 = arith.andi %2, %5 : i1
+  return %6 : i1
+}
 ```
-%0 = llvm.extractelement %x[0]
-%1 = llvm.extractelement %y[0]
-%2 = llvm.call @__trait_PartialEq_impl_i32_eq(%0, %1)
-%3 = llvm.extractelement %x[1]
-%4 = llvm.extractelement %y[1]
-%5 = llvm.call @__trait_PartialEq_impl_i32_eq(%3, %4)
-%6 = llvm.and %2, %5
-llvm.return %6
-```
-</details>

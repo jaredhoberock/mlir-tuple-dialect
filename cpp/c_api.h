@@ -23,10 +23,12 @@ typedef enum {
   TupleCmpPredicateGe
 } TupleCmpPredicate;
 
+// If `claims` is null (mlirValueIsNull), the op is created without a claims operand.
 MlirOperation tupleCmpOpCreate(MlirLocation loc, 
                                TupleCmpPredicate predicate,
                                MlirValue lhs,
-                               MlirValue rhs);
+                               MlirValue rhs,
+                               MlirValue claims);
       
 
 #ifdef __cplusplus

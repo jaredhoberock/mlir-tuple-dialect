@@ -15,8 +15,8 @@ def TupleDialect : Dialect {
   }];
 
   let dependentDialects = [
-    "mlir::trait::TraitDialect",
-    "mlir::vector::VectorDialect"
+    "mlir::arith::ArithDialect",
+    "mlir::trait::TraitDialect"
   ];
 
   let hasCanonicalizer = 1;

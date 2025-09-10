@@ -15,7 +15,7 @@ pub enum CmpPredicate {
 #[link(name = "tuple_dialect")]
 unsafe extern "C" {
     fn tupleRegisterDialect(ctx: MlirContext);
-    fn tupleCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, lhs: MlirValue, rhs: MlirValue) -> MlirOperation;
+    fn tupleCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, lhs: MlirValue, rhs: MlirValue, claims: MlirValue) -> MlirOperation;
     fn tupleGetOpCreate(loc: MlirLocation, tuple: MlirValue, index: isize) -> MlirOperation;
     fn tupleMakeOpCreate(loc: MlirLocation, elements: *const MlirValue, n: isize) -> MlirOperation;
 }
@@ -29,14 +29,30 @@ pub fn cmp<'c>(
     pred: CmpPredicate,
     lhs: Value<'c,'_>,
     rhs: Value<'c,'_>,
+    claims: Option<Value<'c,'_>>,
 ) -> Operation<'c> {
     unsafe {
-        Operation::from_raw(tupleCmpOpCreate(
-            loc.to_raw(),
-            pred,
-            lhs.to_raw(),
-            rhs.to_raw(),
-        ))
+        let op = match claims {
+            Some(claims) => {
+                tupleCmpOpCreate(
+                    loc.to_raw(),
+                    pred,
+                    lhs.to_raw(),
+                    rhs.to_raw(),
+                    claims.to_raw(),
+                )
+            }
+            None => {
+                tupleCmpOpCreate(
+                    loc.to_raw(),
+                    pred,
+                    lhs.to_raw(),
+                    rhs.to_raw(),
+                    MlirValue { ptr: std::ptr::null_mut() },
+                )
+            }
+        };
+        Operation::from_raw(op)
     }
 }
 

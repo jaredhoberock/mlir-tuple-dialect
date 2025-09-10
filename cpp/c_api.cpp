@@ -45,17 +45,17 @@ MlirOperation tupleGetOpCreate(MlirLocation loc, MlirValue tuple, int64_t index)
 MlirOperation tupleCmpOpCreate(MlirLocation loc,
                                TupleCmpPredicate predicate,
                                MlirValue lhs,
-                               MlirValue rhs) {
+                               MlirValue rhs,
+                               MlirValue claims) {
   MLIRContext *ctx = unwrap(loc)->getContext();
   OpBuilder builder(ctx);
 
   auto cppPredicate = static_cast<tuple::CmpPredicate>(predicate);
-  auto op = builder.create<CmpOp>(
-    unwrap(loc),
-    cppPredicate,
-    unwrap(lhs),
-    unwrap(rhs)
-  );
+
+  auto op = mlirValueIsNull(claims)
+    ? builder.create<CmpOp>(unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs))
+    : builder.create<CmpOp>(unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs), unwrap(claims));
+
   return wrap(op.getOperation());
 }
 

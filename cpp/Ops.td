@@ -10,9 +10,9 @@ include "mlir/IR/SymbolInterfaces.td"
 include "Dialect.td"
 include "Enums.td"
 
-def Tuple : TypeConstraint<
-  CPred<"::mlir::tuple::isTuple($_self)">,
-  "any tuple type">;
+def TupleLike : TypeConstraint<
+  CPred<"::mlir::tuple::isTupleLike($_self)">,
+  "either tuple<...> or !tuple.poly">;
 
 def ConcreteTuple : TypeConstraint<
   CPred<"::mlir::TupleType::classof($_self)">,
@@ -24,7 +24,7 @@ def AppendOp : TupleOp<"append", [Pure]> {
     Creates a new `tuple` value from an existing `tuple` and element to append.
   }];
 
-  let arguments = (ins Tuple:$tuple, AnyType:$element);
+  let arguments = (ins TupleLike:$tuple, AnyType:$element);
   let results = (outs AnyType:$result);
 
   let assemblyFormat = "$tuple `,` $element `:` type($tuple) `,` type($element) `->` type($result) attr-dict";
@@ -33,7 +33,6 @@ def AppendOp : TupleOp<"append", [Pure]> {
 }
 
 def CmpOp : TupleOp<"cmp", [
-  AllTypesMatch<["lhs", "rhs"]>,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>
 ]> {
   let summary = "Compare two `tuple` values.";
@@ -43,30 +42,63 @@ def CmpOp : TupleOp<"cmp", [
 
   let arguments = (ins
     CmpPredicateAttr:$predicate,
-    Tuple:$lhs,
-    Tuple:$rhs
+    TupleLike:$lhs,
+    TupleLike:$rhs,
+    Optional<AnyType>:$claims
   );
 
   let results = (outs I1);
 
   let builders = [
-    OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs), [{
+    // with claims
+    OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs, "Value":$claims), [{
       build($_builder, $_state,
             $_builder.getI1Type(),
             $_builder.getAttr<::mlir::tuple::CmpPredicateAttr>(predicate),
-            lhs, rhs);
+            lhs, rhs, claims);
+    }]>,
+
+    // without claims
+    OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs), [{
+      build($_builder, $_state,
+            predicate, lhs, rhs,
+            /*claims=*/Value{});
     }]>
   ];
 
   let extraClassDeclaration = [{
-    mlir::trait::TraitOp getTrait();
-    mlir::FlatSymbolRefAttr getTraitRefAttr();
+    FailureOr<std::optional<unsigned>> verifyArity(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
+
+    std::optional<unsigned> getArity() {
+      auto maybeArity = verifyArity();
+      if (succeeded(maybeArity)) return *maybeArity;
+      return std::nullopt;
+    }
+
+    bool hasClaimsOperand() { return (bool)getClaims(); }
+
+    FailureOr<std::pair<TupleType,TupleType>> getMonomorphicTupleOperandTypes() {
+      TupleType L = dyn_cast<TupleType>(getLhs().getType());
+      TupleType R = dyn_cast<TupleType>(getRhs().getType());
+      if (!L || !R)
+        return failure();
+      if (!trait::isMonomorphicType(L) || !trait::isMonomorphicType(R))
+        return failure();
+      return std::make_pair(L,R);
+    }
+
+    FailureOr<mlir::trait::TraitOp> getTrait(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
+    FlatSymbolRefAttr getTraitRefAttr();
     StringRef getTraitName();
     StringRef getMethodName();
-    LogicalResult verifyTupleTypeHasImplFor(mlir::trait::TraitOp traitOp, Type tuple_ty);
   }];
 
-  let assemblyFormat = "$predicate `,` $lhs `,` $rhs attr-dict `:` type($lhs)";
+  let assemblyFormat = [{
+    $predicate `,` $lhs `,` $rhs
+    (`,` $claims^)? attr-dict `:` type($lhs) `,` type($rhs) (`,` type($claims)^)?
+  }];
+
+  let hasVerifier = 1;
 }
 
 def FoldlOp : TupleOp<"foldl", [
@@ -86,18 +118,36 @@ def FoldlOp : TupleOp<"foldl", [
   let regions = (region SizedRegion<1>:$body);
 
   let extraClassDeclaration = [{
-    unsigned int getArity() {
-      return getInputTupleTypes()[0].size();
+    FailureOr<std::optional<unsigned>> verifyArity(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
+
+    std::optional<unsigned> getArity() {
+      auto maybeArity = verifyArity();
+      if (succeeded(maybeArity)) return *maybeArity;
+      return std::nullopt;
     }
+
+    LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
+    LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
 
     llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
 
-    SmallVector<TupleType> getInputTupleTypes() {
-      SmallVector<TupleType> result;
-      for (auto input: getInputs()) {
-        result.push_back(cast<TupleType>(input.getType()));
+    // this method succeeds only when each input tuple is a concrete TupleType
+    // the element types of each input tuple are still allowed to be polymorphic
+    FailureOr<SmallVector<TupleType>> getInputTypesAsTupleTypes() {
+      SmallVector<TupleType> tupleTypes;
+      tupleTypes.reserve(getInputs().size());
+      for (Value v : getInputs()) {
+        if (auto tt = dyn_cast<TupleType>(v.getType())) {
+          tupleTypes.push_back(tt);
+        } else {
+          return failure();
+        }
       }
-      return result;
+      return tupleTypes;
+    }
+
+    bool inputTypesAreTupleTypes() {
+      return succeeded(getInputTypesAsTupleTypes());
     }
 
     YieldOp bodyYield();
@@ -191,21 +241,42 @@ def MapOp : TupleOp<"map", [
   let regions = (region SizedRegion<1>:$body);
 
   let extraClassDeclaration = [{
-    unsigned int getArity() {
-      return getResultTupleType().size();
+    FailureOr<std::optional<unsigned>> verifyArity(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
+
+    std::optional<unsigned> getArity() {
+      auto maybeArity = verifyArity();
+      if (succeeded(maybeArity)) return *maybeArity;
+      return std::nullopt;
     }
+
+    LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
+    LogicalResult verifySymbolUsesWithUnknownArity();
 
     llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i);
 
-    SmallVector<TupleType> getInputTupleTypes() {
-      SmallVector<TupleType> result;
-      for (auto input : getInputs()) {
-        result.push_back(cast<TupleType>(input.getType()));
+    // this method succeeds only when each input tuple is a concrete TupleType
+    // the element types of each input tuple are still allowed to be polymorphic
+    FailureOr<SmallVector<TupleType>> getInputTypesAsTupleTypes() {
+      SmallVector<TupleType> tupleTypes;
+      tupleTypes.reserve(getInputs().size());
+      for (Value v : getInputs()) {
+        if (auto tt = dyn_cast<TupleType>(v.getType())) {
+          tupleTypes.push_back(tt);
+        } else {
+          return failure();
+        }
       }
-      return result;
+      return tupleTypes;
     }
 
+    bool inputTypesAreTupleTypes() {
+      return succeeded(getInputTypesAsTupleTypes());
+    }
+
+    // returns the concrete TupleType of the result
+    // only valid in the known-arity case
     TupleType getResultTupleType() {
+      assert(getArity() && "getResultTupleType called when arity is unknown");
       return cast<TupleType>(getResult().getType());
     }
 

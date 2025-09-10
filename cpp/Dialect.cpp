@@ -1,7 +1,8 @@
 #include "Canonicalization.hpp"
 #include "ConvertToLLVM.hpp"
-#include "ConvertToTrait.hpp"
 #include "Dialect.hpp"
+#include "ImplGenerators.hpp"
+#include "Monomorphization.hpp"
 #include "Ops.hpp"
 #include <llvm/ADT/STLExtras.h>
 #include <iostream>
@@ -10,7 +11,8 @@
 #include <mlir/Dialect/Vector/IR/VectorOps.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
-#include <mlir-trait-dialect/cpp/Dialect.hpp>
+#include <mlir/Transforms/InliningUtils.h>
+#include <Trait.hpp>
 
 #include "Dialect.cpp.inc"
 
@@ -26,11 +28,41 @@ struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
   }
 };
 
-struct ConvertToTraitInterface : public mlir::trait::ConvertToTraitPatternInterface {
-  using mlir::trait::ConvertToTraitPatternInterface::ConvertToTraitPatternInterface;
+struct MonomorphizationInterface : public trait::MonomorphizationInterface {
+  using trait::MonomorphizationInterface::MonomorphizationInterface;
 
-  void populateConvertToTraitConversionPatterns(RewritePatternSet& patterns) const override final {
-    populateTupleToTraitConversionPatterns(patterns);
+  void populateConvertToTraitPatterns(RewritePatternSet& patterns) const override final {
+    tuple::populateConvertTupleToTraitPatterns(patterns);
+  }
+
+  void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) const override final {
+    tuple::populateInstantiateMonomorphsPatterns(patterns);
+  }
+
+  void populateEraseClaimsPatterns(TypeConverter &typeConverter,
+                                   RewritePatternSet &patterns) const override final {
+    tuple::populateEraseClaimsPatterns(typeConverter, patterns);
+  }
+};
+
+struct GenerateImplsInterface : public trait::GenerateImplsInterface {
+  using trait::GenerateImplsInterface::GenerateImplsInterface;
+
+  void populateImplGenerators(trait::ImplGeneratorSet& generators) const override final {
+    tuple::populateImplGenerators(generators);
+  }
+};
+
+struct TupleInlinerInterface : public DialectInlinerInterface {
+  using DialectInlinerInterface::DialectInlinerInterface;
+
+  static bool isAlwaysLegalToInline(Operation *op) {
+    // for now, assume tuple.append, tuple.get, & tuple.make are always safe to inline
+    return isa<AppendOp>(op) || isa<GetOp>(op) || isa<MakeOp>(op);
+  }
+
+  bool isLegalToInline(Operation* op, Region*, bool, IRMapping&) const {
+    return isAlwaysLegalToInline(op);
   }
 };
 
@@ -44,7 +76,9 @@ void TupleDialect::initialize() {
 
   addInterfaces<
     ConvertToLLVMInterface,
-    ConvertToTraitInterface
+    GenerateImplsInterface,
+    MonomorphizationInterface,
+    TupleInlinerInterface
   >();
 }
 

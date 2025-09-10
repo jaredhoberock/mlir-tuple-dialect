@@ -96,7 +96,6 @@ struct GetOpLowering : OpConversionPattern<GetOp> {
   LogicalResult
   matchAndRewrite(GetOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    Location loc = op.getLoc();
     int64_t index = op.getIndex().getSExtValue();
 
     rewriter.replaceOpWithNewOp<LLVM::ExtractValueOp>(

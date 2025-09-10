@@ -21,11 +21,12 @@ fn append_partial_eq_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait @PartialEq {
-      func.func private @eq(!trait.self, !trait.self) -> i1
+    trait.trait @PartialEq[!trait.poly<0>,!trait.poly<1>] {
+      func.func private @eq(!trait.poly<0>, !trait.poly<1>) -> i1
     
-      func.func private @ne(%self: !trait.self, %other: !trait.self) -> i1 {
-        %equal = trait.method.call @PartialEq::@eq<!trait.self>(%self, %other) : (!trait.self, !trait.self) -> i1 to (!trait.self, !trait.self) -> i1
+      func.func private @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
+        %a = trait.assume @PartialEq[!trait.poly<0>,!trait.poly<1>]
+        %equal = trait.method.call %a @PartialEq[!trait.poly<0>,!trait.poly<1>]::@eq(%self, %other) : (!trait.poly<0>, !trait.poly<1>) -> i1
         %true = arith.constant 1 : i1
         %result = arith.xori %equal, %true : i1
         return %result : i1
@@ -47,11 +48,11 @@ fn append_partial_ord_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait @PartialOrd {
-      func.func private @lt(!trait.self, !trait.self) -> i1
-      func.func private @le(!trait.self, !trait.self) -> i1
-      func.func private @gt(!trait.self, !trait.self) -> i1
-      func.func private @ge(!trait.self, !trait.self) -> i1
+    trait.trait @PartialOrd[!trait.poly<2>, !trait.poly<3>] {
+      func.func private @lt(!trait.poly<2>, !trait.poly<3>) -> i1
+      func.func private @le(!trait.poly<2>, !trait.poly<3>) -> i1
+      func.func private @gt(!trait.poly<2>, !trait.poly<3>) -> i1
+      func.func private @ge(!trait.poly<2>, !trait.poly<3>) -> i1
     }
     "#;
 
@@ -69,7 +70,7 @@ fn append_partial_eq_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl @PartialEq for i32 {
+    trait.impl for @PartialEq[i32,i32]{
       func.func private @eq(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi eq, %self, %other : i32
         return %res : i1
@@ -91,7 +92,7 @@ fn append_partial_ord_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl @PartialOrd for i32 {
+    trait.impl for @PartialOrd[i32,i32] {
       func.func private @lt(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi slt, %self, %other : i32
         return %res : i1
@@ -131,7 +132,7 @@ fn build_test1_func<'c>(
     //   %b_0 = arith.constant 7 : i32
     //   %a = tuple.make(%a_0 : i32) : tuple<i32>
     //   %b = tuple.make(%b_0 : i32) : tuple<i32>
-    //   %r = tuple.cmp eq, %a, %b : !str.string
+    //   %r = tuple.cmp eq, %a, %b : tuple<i32>, tuple<i32>
     //   return %r : i1
     // }
 
@@ -167,6 +168,7 @@ fn build_test1_func<'c>(
             tuple::CmpPredicate::Eq,
             a,
             b,
+            None,
         )).result(0).unwrap().into();
 
         block.append_operation(func::r#return(
@@ -209,12 +211,12 @@ fn append_test2_func<'c>(
     let source = r#"
     func.func @test2(%a: tuple<i32,i32,i32>, %b: tuple<i32,i32,i32>) -> i64
       attributes { llvm.emit_c_interface } {
-      %eq = tuple.cmp eq, %a, %b : tuple<i32,i32,i32>
-      %ne = tuple.cmp ne, %a, %b : tuple<i32,i32,i32>
-      %lt = tuple.cmp lt, %a, %b : tuple<i32,i32,i32>
-      %le = tuple.cmp le, %a, %b : tuple<i32,i32,i32>
-      %gt = tuple.cmp gt, %a, %b : tuple<i32,i32,i32>
-      %ge = tuple.cmp ge, %a, %b : tuple<i32,i32,i32>
+      %eq = tuple.cmp eq, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %ne = tuple.cmp ne, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %lt = tuple.cmp lt, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %le = tuple.cmp le, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %gt = tuple.cmp gt, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %ge = tuple.cmp ge, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
     
       %c1 = arith.constant 1 : i64
       %c2 = arith.constant 2 : i64

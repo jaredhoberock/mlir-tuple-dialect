@@ -6,18 +6,18 @@ OPT := $(LLVM_BIN_PATH)/mlir-opt
 
 # Compiler flags
 CXX := clang++
-CXXFLAGS := -g -fPIC `$(LLVM_CONFIG) --cxxflags`
+CXXFLAGS := -Wall -Werror -g -fPIC `$(LLVM_CONFIG) --cxxflags`
 
 # LLVM/MLIR libraries
 MLIR_INCLUDE = $(HOME)/dev/git/llvm-project-20/install/include
 
 # Trait dialect include
-TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git
+TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git/mlir-trait-dialect-witness/cpp
 
 INCLUDES := -I $(MLIR_INCLUDE) -I $(TRAIT_DIALECT_INCLUDE)
 
 # Dialect library sources
-DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp ConvertToTrait.cpp Dialect.cpp Enums.cpp Ops.cpp Types.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Monomorphization.cpp Dialect.cpp Enums.cpp ImplGenerators.cpp Ops.cpp Types.cpp
 DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
 
 # Generated files

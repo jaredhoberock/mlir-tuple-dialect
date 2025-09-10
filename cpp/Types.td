@@ -2,51 +2,45 @@
 #define TUPLE_TYPES_TD
 
 include "mlir/IR/AttrTypeBase.td"
-include "mlir-trait-dialect/cpp/TypeInterfaces.td"
 include "Dialect.td"
+include "TraitTypeInterfaces.td"
 
-def AnyTupleType : TypeDef<TupleDialect, "AnyTuple", [SymbolicTypeUnificationInterface]> {
-  let mnemonic = "any";
-  let summary = "Placeholder type representing any tuple type with trait bounds on element types";
+def PolyType : TypeDef<TupleDialect, "Poly", [
+  MonomorphizableTypeInterface,
+  TypeVariableInterface
+]> {
+  let mnemonic = "poly";
+  let summary = "Placeholder type representing a polymorphic tuple type";
   let description = [{
-    The `!tuple.any` type is a symbolic type used to provide a generic `trait.impl`s
-    for all tuple types.
+    The `!tuple.poly` type represents a universally quantified type parameter
+    that is also a tuple. It is used to model the parameters of generic functions
+    on tuples.
 
-    It provides the method `unifyWith` which will return `true` for any tuple type
-    whose element types all have a `trait.impl` for each trait mentioned in `traitBounds`.
+    The `unique_id` serves as a unique identifier for this type within the module.
 
-    For example:
-      trait.trait @PartialEq {
-        func.func private @eq(!trait.self, !trait.self) -> i1
-      }
-
-      trait.impl @PartialEq !tuple.any<[@PartialEq]> {
-        func.func private @eq(%a: !tuple.any<[@PartialEq]>, %b: !tuple.any<[@PartialEq]>) -> i1 {
-          %res = tuple.cmp eq, %a, %b : !tuple.any<[@PartialEq]>
-          return $res : i1
-        }
-      }
+    Alternatively, `fresh` can be specified instead of `unique_id` to request a "fresh"
+    `!tuple.poly` with an automatically-generated `unique_id`. Fresh IDs are allocated in
+    monotonically decreasing order beginning at `-1`.
   }];
 
   let extraClassDeclaration = [{
-    // for SymbolicTypeUnificationInterface
-    mlir::LogicalResult unifyWith(mlir::Type ty, ModuleOp module, llvm::function_ref<InFlightDiagnostic()> emitError) const;
+    // create a "fresh" PolyType with an unused unique_id
+    static PolyType fresh(MLIRContext* ctx);
 
-    bool hasTraitBound(::mlir::FlatSymbolRefAttr traitRefAttr) const {
-      for (auto attr : getTraitBounds()) {
-        if (traitRefAttr == attr) return true;
-      }
+    // for MonomorphizableTypeInterface
+    bool isMonomorphic() const {
       return false;
     }
 
-    SmallVector<trait::TraitOp> getTraits(ModuleOp module) const;
+    LogicalResult substituteWith(Type other,
+                                 ModuleOp module,
+                                 DenseMap<Type,Type> &substitution,
+                                 llvm::function_ref<InFlightDiagnostic()> emitError) const;
   }];
 
-  let parameters = (ins
-    ArrayRefParameter<"::mlir::FlatSymbolRefAttr">:$traitBounds
-  );
+  let parameters = (ins "int":$unique_id);
 
-  let assemblyFormat = "`<` `[` $traitBounds `]` `>`";
+  let hasCustomAssemblyFormat = 1;
 }
 
 #endif // TUPLE_TYPES_TD

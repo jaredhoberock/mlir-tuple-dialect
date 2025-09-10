@@ -1,8 +1,9 @@
 #include "Dialect.hpp"
 #include "Ops.hpp"
+#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
-#include <mlir-trait-dialect/cpp/Instantiation.hpp>
+#include <Instantiation.hpp>
 
 namespace mlir::tuple {
 
@@ -29,102 +30,60 @@ struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
   }
 };
 
-struct FoldlOpCanonicalization : public OpRewritePattern<FoldlOp> {
+struct CmpOpCanonicalization : public OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(FoldlOp op,
+  LogicalResult matchAndRewrite(CmpOp op,
                                 PatternRewriter& rewriter) const override {
-    Location loc = op.getLoc();
+    // check if lhs & rhs are both empty tuples
+    auto arity = op.getArity();
+    if (!arity)
+      return rewriter.notifyMatchFailure(op, "unknown arity");
 
-    Region &body = op.getBody();
-    Block &entry = body.front();
+    // check if the arity is 0
+    if (*arity != 0)
+      return rewriter.notifyMatchFailure(op, "arity is not zero");
 
-    Value previousResult = op.getInit();
-    for (unsigned int i = 0; i < op.getArity(); ++i) {
-      // create a vector of values to "pass" to the block below
-      SmallVector<Value> previousResultAndIthElements;
-      previousResultAndIthElements.push_back(previousResult);
-
-      // collect the ith element from each input tuple
-      for (Value tuple : op.getInputs()) {
-        previousResultAndIthElements.push_back(rewriter.create<GetOp>(loc, tuple, i));
-      }
-
-      // build the type substitution for this iteration
-      DenseMap<Type,Type> substitution = op.buildSubstitutionForIteration(i, previousResult.getType());
-
-      // instantiate the body into a temporary Region
-      Region bodyInstance;
-      trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, substitution);
-
-      // get the block to inline
-      Block* blockToInline = &bodyInstance.front();
-
-      // before inlining, find the block's YieldOp
-      YieldOp yieldOp = cast<YieldOp>(blockToInline->getTerminator());
-
-      // inline the block, replacing block arguments with the previous result and the ith element of each tuple
-      rewriter.inlineBlockBefore(blockToInline, op, previousResultAndIthElements);
-
-      // now that the yield op has been inlined, grab its operand
-      previousResult = yieldOp.getOperand();
-
-      // erase the yield
-      rewriter.eraseOp(yieldOp);
+    // empty tuples fold to a constant depending on the predicate:
+    bool value = false;
+    switch (op.getPredicate()) {
+      case CmpPredicate::eq:
+      case CmpPredicate::le:
+      case CmpPredicate::ge:
+        value = true;
+        break;
+      case CmpPredicate::ne:
+      case CmpPredicate::lt:
+      case CmpPredicate::gt:
+        value = false;
+        break;
     }
 
-    // replace the foldl op with the result of the final iteration
-    rewriter.replaceOp(op, previousResult);
+    rewriter.replaceOpWithNewOp<arith::ConstantOp>(
+      op,
+      rewriter.getBoolAttr(value)
+    );
 
     return success();
   }
 };
 
-struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
+struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
   using OpRewritePattern::OpRewritePattern;
 
-  LogicalResult matchAndRewrite(MapOp mapOp,
+  LogicalResult matchAndRewrite(GetOp op,
                                 PatternRewriter& rewriter) const override {
-    Location loc = mapOp.getLoc();
-    unsigned int arity = mapOp.getArity();
+    // check if the input tuple came from tuple.make
+    auto makeOp = op.getTuple().getDefiningOp<MakeOp>();
+    if (!makeOp)
+      return failure();
 
-    Region &body = mapOp.getBody();
-    Block &entry = body.front();
+    // get the ith element
+    int64_t i = op.getIndex().getSExtValue();
+    Value element = makeOp.getElements()[i];
 
-    SmallVector<Value> results;
-    for (unsigned int i = 0; i < arity; ++i) {
-      // get the ith element from each input tuple
-      SmallVector<Value> ithElements;
-      for (Value tuple : mapOp.getInputs()) {
-        ithElements.push_back(rewriter.create<GetOp>(loc, tuple, i));
-      }
-
-      // build the type substitution for this iteration
-      DenseMap<Type,Type> substitution = mapOp.buildSubstitutionForIteration(i);
-
-      // instantiate the body into a temporary Region
-      Region bodyInstance;
-      trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, substitution);
-
-      // get the block to inline
-      Block* blockToInline = &bodyInstance.front();
-
-      // before inlining, find the block's YieldOp
-      YieldOp yieldOp = cast<YieldOp>(blockToInline->getTerminator());
-
-      // inline the block, replacing block arguments with the ith element of each tuple
-      rewriter.inlineBlockBefore(blockToInline, mapOp, ithElements);
-
-      // now that the yield op has been inlined, grab its operand
-      results.push_back(yieldOp->getOperand(0));
-
-      // erase the yield
-      rewriter.eraseOp(yieldOp);
-    }
-
-    // replace the map op with the assembled result tuple
-    rewriter.replaceOpWithNewOp<MakeOp>(mapOp, results);
-
+    // replace with the ith element
+    rewriter.replaceOp(op, element);
     return success();
   }
 };
@@ -132,8 +91,8 @@ struct MapOpCanonicalization : public OpRewritePattern<MapOp> {
 void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<
     AppendOpCanonicalization,
-    FoldlOpCanonicalization,
-    MapOpCanonicalization
+    CmpOpCanonicalization,
+    GetOpCanonicalization
   >(patterns.getContext());
 }
 

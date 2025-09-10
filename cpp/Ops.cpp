@@ -3,7 +3,7 @@
 #include "Types.hpp"
 #include <iostream>
 #include <mlir/IR/Builders.h>
-#include <mlir-trait-dialect/cpp/Types.hpp>
+#include <TraitTypes.hpp>
 
 #define GET_OP_CLASSES
 #include "Ops.cpp.inc"
@@ -15,7 +15,8 @@ LogicalResult AppendOp::verify() {
 
   // tuple.append has two modes
   // 1. concrete mode: input tuple is tuple, result type must also be TupleType
-  // 2. polymorphic mode: input tuple is !tuple.any, result type must be !trait.poly
+  // 2. polymorphic mode: input tuple is !tuple.poly, result type must be !trait.poly
+  //    XXX TODO seems like the result type could also be !tuple.poly
   Type inputTy = getTuple().getType();
 
   // if input type is tuple<a,b,c>
@@ -31,8 +32,8 @@ LogicalResult AppendOp::verify() {
     return success();
   }
 
-  // if input type is !tuple.any
-  if (AnyTupleType polyTupleTy = dyn_cast<AnyTupleType>(inputTy)) {
+  // if input type is !tuple.poly
+  if (PolyType polyTupleTy = dyn_cast<PolyType>(inputTy)) {
     // expected result type is !trait.poly
     if (!isa<trait::PolyType>(getResult().getType()))
       return emitOpError() << "type mismatch: expected '!trait.poly', got '"
@@ -76,6 +77,171 @@ LogicalResult GetOp::verify() {
   return success();
 }
 
+
+//===----------------------------------------------------------------------===//
+// CmpOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<std::optional<unsigned>> CmpOp::verifyArity(llvm::function_ref<InFlightDiagnostic()> err) {
+  std::optional<unsigned> seen;
+
+  auto check = [&](Type t, StringRef which) {
+    if (!isTupleLike(t)) {
+      if (err) err() << which << " must be a tuple type, got " << t;
+      return failure();
+    }
+    if (auto tt = dyn_cast<TupleType>(t)) {
+      unsigned n = tt.size();
+      if (seen && *seen != n) {
+        if (err) err() << "arity mismatch: " << which << " has arity " << n
+                       << " but another operand has arity " << *seen;
+        return failure();
+      }
+      seen = n;
+    }
+    return success();
+  };
+
+  if (failed(check(getLhs().getType(), "lhs"))) return failure();
+  if (failed(check(getRhs().getType(), "rhs"))) return failure();
+  if (Value c = getClaims())
+    if (failed(check(c.getType(), "claims"))) return failure();
+
+  return seen;
+}
+
+LogicalResult CmpOp::verify() {
+  auto errFn = [&]{ return emitOpError(); };
+
+  // verify arity
+  if (failed(verifyArity(errFn)))
+    return failure();
+
+  Type L = getLhs().getType();
+  Type R = getRhs().getType();
+  Value claims = getClaims();
+
+  // classify monomorphic vs polymorphic mode
+  bool monomorphicMode = trait::isMonomorphicType(L) && trait::isMonomorphicType(R);
+
+  if (monomorphicMode) {
+    // in monomorphic mode, L & R must be identical
+    if (L != R)
+      return emitOpError() << "type mismatch: lhs and rhs must have the same type; expected "
+                           << L << ", but got " << R;
+
+    // claims is optional, but if present, must be monomorphic
+    if (claims) {
+      Type C = claims.getType();
+      if (!trait::isMonomorphicType(C))
+        return emitOpError() << "type mismatch: claims must be monomorphic when tuple operands are monomorphic; got "
+                             << C;
+    }
+
+    return success();
+  }
+
+  // in polymorphic mode, claims is required
+  if (!claims)
+    return emitOpError() << "claims operand is required when either tuple input is polymorphic";
+
+  return success();
+}
+
+static FailureOr<Type> getExpectedClaimsTypeForCmpOp(
+  MLIRContext* ctx,
+  Type L,
+  Type R,
+  FlatSymbolRefAttr traitRef,
+  std::optional<unsigned> arity,
+  llvm::function_ref<InFlightDiagnostic()> err) {
+
+  // require tuple-like operands
+  if (!isTupleLike(L) || !isTupleLike(R)) {
+    if (err) err() << "lhs and rhs must be tuple types; got " << L << " and " << R;
+    return failure();
+  }
+
+  // unknown arity -> expect !tuple.poly
+  if (!arity)
+    return tuple::PolyType::fresh(ctx);
+
+  auto LT = dyn_cast<TupleType>(L);
+  auto RT = dyn_cast<TupleType>(R);
+
+  // if exactly one side is concrete, synthesize a tuple with fresh poly elements for the other
+  if (!LT)
+    LT = getTupleTypeWithFreshPolymorphicElements(ctx, *arity);
+  else if (!RT)
+    RT = getTupleTypeWithFreshPolymorphicElements(ctx, *arity);
+
+  // now both must be TupleType
+  assert(LT && RT && "Expected both LT and RT to be TupleType");
+
+  if (LT.size() != *arity || RT.size() != *arity) {
+    if (err) err() << "arity mismatch: lhs has " << LT.size()
+                   << ", rhs has " << RT.size()
+                   << ", but expected arity is " << *arity;
+    return failure();
+  }
+
+  // map traitRef over the elements of LT & RT
+  SmallVector<Type> elems;
+  elems.reserve(*arity);
+  for (auto [Li, Ri] : llvm::zip(LT.getTypes(), RT.getTypes())) {
+    Type Ci = trait::ClaimType::get(ctx, traitRef, {Li, Ri});
+    elems.push_back(Ci);
+  }
+
+  return TupleType::get(ctx, elems);
+}
+
+LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // if LHS is a concrete empty tuple, allow trivially
+  if (auto tupleTy = dyn_cast<TupleType>(getLhs().getType())) {
+    if (tupleTy.getTypes().empty()) {
+      return success();
+    }
+  }
+
+  auto errFn = [&]{ return emitOpError(); };
+
+  // look up the base trait we need
+  auto trait = getTrait(errFn);
+  if (failed(trait))
+    return failure();
+
+  // make sure the trait has the method we'll need as well
+  if (failed(trait->getMethod(getMethodName(), errFn)))
+    return failure();
+
+  // if no claims were provided, this is the monomorphic path
+  Value claims = getClaims();
+  if (!claims) {
+    // nothing more to check
+    return success();
+  }
+
+  // check the type of claims
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module) return emitOpError() << "not in a module";
+
+  auto expectedClaimsTy = getExpectedClaimsTypeForCmpOp(
+    getContext(),
+    getLhs().getType(),
+    getRhs().getType(),
+    getTraitRefAttr(),
+    getArity(),
+    errFn
+  );
+  if (failed(expectedClaimsTy)) return failure();
+
+  if (failed(trait::substituteWith(*expectedClaimsTy, claims.getType(), module, errFn)))
+    return failure();
+
+  return success();
+}
+
 StringRef CmpOp::getTraitName() {
   if (getPredicate() == CmpPredicate::eq ||
       getPredicate() == CmpPredicate::ne) {
@@ -106,190 +272,152 @@ StringRef CmpOp::getMethodName() {
   return {};
 }
 
-mlir::trait::TraitOp CmpOp::getTrait() {
+static FailureOr<mlir::trait::TraitOp> getTraitInModule(
+  ModuleOp module,
+  FlatSymbolRefAttr traitRef,
+  llvm::function_ref<InFlightDiagnostic()> err) {
+  auto traitOp = mlir::SymbolTable::lookupNearestSymbolFrom<mlir::trait::TraitOp>(module, traitRef);
+  if (!traitOp) {
+    if (err) err() << "couldn't find trait.trait '" << traitRef << "'";
+    return failure();
+  }
+  return traitOp;
+}
+
+FailureOr<mlir::trait::TraitOp> CmpOp::getTrait(llvm::function_ref<InFlightDiagnostic()> err) {
   ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
   if (!module) {
-    emitOpError() << "not inside of a module";
-    return nullptr;
+    if (err) err() << "not inside of a module";
+    return failure();
   }
-  return mlir::SymbolTable::lookupNearestSymbolFrom<mlir::trait::TraitOp>(module, getTraitRefAttr());
+  return getTraitInModule(module, getTraitRefAttr(), err);
 }
 
-LogicalResult CmpOp::verifyTupleTypeHasImplFor(mlir::trait::TraitOp traitOp, Type tuple_ty) {
-  LogicalResult result = success();
 
-  if (auto concrete_tuple_ty = dyn_cast<TupleType>(tuple_ty)) {
-    // tuple_ty is a concrete tuple<...> type
-    // recursively check for impls for each element type
-    for (Type element_ty : concrete_tuple_ty.getTypes()) {
-      if (isa<TupleType>(element_ty) or isa<AnyTupleType>(element_ty)) {
-        if (failed(verifyTupleTypeHasImplFor(traitOp, element_ty))) {
-          result = failure();
-        }
-      } else {
-        // element_ty is not a tuple; look for an impl
-        if (!traitOp.getImpl(element_ty)) {
-          result = emitOpError() << "tuple element type " << element_ty << " does not have a trait.impl for trait '" << getTraitRefAttr() << "'";
-        }
+//===----------------------------------------------------------------------===//
+// FoldlOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<std::optional<unsigned>> FoldlOp::verifyArity(llvm::function_ref<InFlightDiagnostic()> err) {
+  std::optional<unsigned> seen;
+
+  for (auto [idx, v] : llvm::enumerate(getInputs())) {
+    Type ty = v.getType();
+
+    // inputs must be some kind of tuple. if not, error
+    if (!isTupleLike(ty)) {
+      if (err) err() << "input #" << idx << " must be a tuple type, got " << ty;
+      return failure();
+    }
+
+    // concrete tuples must agree on arity
+    if (auto tup = dyn_cast<TupleType>(ty)) {
+      unsigned n = tup.size();
+      if (seen && *seen != n) {
+        if (err) err() << "arity mismatch: input #" << idx
+                       << " has arity " << n << " but a previous input has arity "
+                       << *seen;
+        return failure();
       }
-    }
-  } else if (auto symbolic_tuple_ty = dyn_cast<AnyTupleType>(tuple_ty)) {
-    // typle_ty is a symbolic !tuple.any type
-    // check for a trait bound
-    if (!symbolic_tuple_ty.hasTraitBound(getTraitRefAttr())) {
-      result = emitOpError() << symbolic_tuple_ty << " does not have a trait bound for trait '" << getTraitRefAttr() << "'";
-    }
-  } else {
-    llvm_unreachable("CmpOp::verifyTupleTypeHasImplFor: expected tuple type to be either 'tuple' or '!tuple.any'");
-  }
-
-  return result;
-}
-
-LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  // if the TupleType is concrete and empty, the trait needn't exist at all
-  if (auto tupleTy = dyn_cast<TupleType>(getLhs().getType())) {
-    if (tupleTy.getTypes().empty()) {
-      return success();
+      seen = n;
     }
   }
 
-  // look up the trait.trait we need
-  auto traitOp = getTrait();
-  if (!traitOp) {
-    return emitOpError() << "couldn't find trait.trait '" << getTraitRefAttr() << "'";
-  }
-
-  // make sure the trait has the method we'll need as well
-  if (!traitOp.hasMethod(getMethodName())) {
-    return emitOpError() << "couldn't find method '@" << getMethodName() << "' in trait.trait '" << getTraitRefAttr() << "'";
-  }
-
-  // verify that the operand type has impls of the trait we will use during lowering
-  return verifyTupleTypeHasImplFor(traitOp, getLhs().getType());
+  return seen;
 }
 
-YieldOp MapOp::bodyYield() {
-  return cast<YieldOp>(getBody().front().back());
-}
-
-FunctionType MapOp::getBodyFunctionType() {
-  return FunctionType::get(
-      getContext(),
-      getBody().front().getArgumentTypes(),
-      bodyYield().getOperand().getType()
-  );
-}
-
-FunctionType MapOp::getFunctionTypeForIteration(unsigned int i) {
-  SmallVector<Type> argumentTypes;
-  for (TupleType input : getInputTupleTypes())
-    argumentTypes.push_back(input.getType(i));
-
-  return FunctionType::get(
-      getContext(),
-      argumentTypes,
-      getResultTupleType().getType(i)
-  );
-}
-
-llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
-  auto bodyTy = getBodyFunctionType();
-  auto iterationTy = getFunctionTypeForIteration(i);
-
-  llvm::DenseMap<Type,Type> substitution;
-  if (failed(trait::unifyTypes(getLoc(), bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), substitution))) {
-    llvm_unreachable("buildSubstitutionForIteration: unification failed");
-  }
-
-  return substitution;
-}
-
-LogicalResult MapOp::verify() {
+LogicalResult FoldlOp::verify() {
   // check that we have at least one input tuple
   if (getInputs().empty())
     return emitOpError("expected at least one input tuple");
 
-  // verify all inputs are TupleType and collect their arities 
-  SmallVector<TupleType> inputTupleTypes;
-  size_t expectedArity = 0;
+  // body must exist, have exactly (1 + #inputs) args, and end with tuple.yield
+  Block &body = getBody().front();
+  unsigned numExpectedArgs = 1 + getInputs().size();
+  if (body.getNumArguments() != numExpectedArgs)
+    return emitOpError() << "body block must have "
+                         << numExpectedArgs << " arguments (accumulator + one per input tuple), got "
+                         << body.getNumArguments();
 
-  for (auto [i, input] : llvm::enumerate(getInputs())) {
-    auto tupleType = dyn_cast<TupleType>(input.getType());
-    if (!tupleType)
-      return emitOpError("input #") << i << " must be a 'tuple', got "
-                                    << input.getType();
-    inputTupleTypes.push_back(tupleType);
-
-    // check arity consistency
-    if (i == 0) {
-      expectedArity = tupleType.size();
-    } else if (tupleType.size() != expectedArity) {
-      return emitOpError("all input tuples must have the same arity, expected ")
-             << expectedArity << " but input #" << i << " has arity "
-             << tupleType.size();
-    }
-  }
-
-  // verify result is a tuple type
-  auto resultTupleType = dyn_cast<TupleType>(getResult().getType());
-  if (!resultTupleType)
-    return emitOpError("result must be a tuple type, got ") << getResult().getType();
-
-  // check result type's arity
-  if (resultTupleType.size() != expectedArity)
-    return emitOpError("result tuple must have the same arity as input, expected ")
-           << expectedArity << " but result tuple has arity "
-           << resultTupleType.size();
-
-  // check body block
-  Block &bodyBlock = getBody().front();
-
-  // check body argument count matches the number of inputs
-  if (bodyBlock.getNumArguments() != getInputs().size())
-    return emitOpError("body block must have ") << getInputs().size()
-           << " arguments to match the number of tuple inputs, got "
-           << bodyBlock.getNumArguments();
-
-  // check that the body block is terminated with YieldOp
-  if (bodyBlock.empty())
+  if (body.empty())
     return emitOpError("body block cannot be empty");
-  if (!isa<YieldOp>(bodyBlock.back()))
-    return emitOpError("body block must terminate with `tuple.yield`, got ")
-           << bodyBlock.back().getName();
 
-  return success();
+  if (!isa<YieldOp>(body.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << body.back().getName();
+
+  // finally verify that all concrete tuples agree on arity
+  return verifyArity([&] {
+    return emitOpError();
+  });
 }
 
-LogicalResult MapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  // look for the enclosing ModuleOp
-  auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
+LogicalResult FoldlOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // must be inside a module
+  auto moduleOp = getOperation()->getParentOfType<ModuleOp>();
   if (!moduleOp)
-    return emitOpError() << "not contained in a module";
+    return emitOpError("not contained in a module");
 
-  Location loc = getLoc();
-  MLIRContext *ctx = getContext();
+  if (auto N = getArity())
+    return verifySymbolUsesWithKnownArity(moduleOp, *N);
+  return verifySymbolUsesWithUnknownArity(moduleOp);
+}
 
-  // Get input tuple types
-  SmallVector<TupleType> inputTupleTypes = getInputTupleTypes();
+LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity) {
+  auto err = [&]{ return emitOpError(); };
 
-  // treat the body as if it is a callee and get its function type
+  // treat the body like a function with type (A, E1..Em) -> R
   FunctionType calleeTy = getBodyFunctionType();
+  Type R = calleeTy.getResult(0);
 
-  // for each tuple element,
-  // unify "iteration" i of the body
-  for (size_t i = 0; i < getArity(); ++i) {
-    // check iteration i like a function call
-    // collect a FunctionType for iteration i: these are the call arguments
-    FunctionType callerTy = getFunctionTypeForIteration(i);
+  // thread the accumulator type across iterations
+  Type prev = getInit().getType();
+  for (unsigned i = 0; i < arity; ++i) {
+    FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
-    // unify each iteration in isolation like a separate function call
-    llvm::DenseMap<Type,Type> substitution;
-    if (failed(trait::unifyTypes(loc, calleeTy, callerTy, moduleOp, substitution)))
+    // substitute each iteration in isolation as if it was a separate function call
+    DenseMap<Type,Type> subst;
+    if (failed(trait::substituteWith(calleeTy, callerTy, module, subst, err)))
       return failure();
+
+    // update the previous result type by applying the substitution
+    // to the body's result type
+    prev = trait::applySubstitutionToFixedPoint(subst, R);
   }
 
-  return success();
+  // substitute the formal result type with the actual final result type
+  return trait::substituteWith(getResult().getType(), prev, module, err);
+}
+
+LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
+  auto err = [&] { return emitOpError(); };
+
+  // treat the body like a function with type:
+  // (accFormal, E1..Em) -> yieldFormal
+  FunctionType calleeTy = getBodyFunctionType();
+  Type accFormal        = calleeTy.getInput(0);  // formal type of %acc
+  Type yieldFormal      = calleeTy.getResult(0); // formal yield type
+  Type initActual       = getInit().getType();   // actual type of %init
+  Type resultFormal     = getResult().getType(); // op's formal result type
+
+  // formal acc must accept the actual init type
+  if (failed(trait::substituteWith(accFormal, initActual, module, err)))
+    return failure();
+
+  // every non-accumulator body arg type must be purely polymorphic
+  for (auto [i, Ei] : llvm::enumerate(calleeTy.getInputs().drop_front())) {
+    if (!trait::isPurelyPolymorphicType(Ei))
+      return err() << "non-accumulator body argument #" << (i + 1)
+                   << " must be purely polymorphic (all leaves are e.g. '!trait.poly'); got "
+                   << Ei;
+  }
+
+  // closure: one step of the body must preserve the accumulator shape
+  if (failed(trait::substituteWith(accFormal, yieldFormal, module, err)))
+    return failure();
+
+  // op result consistency: op's formal result must match the accumulator
+  return trait::substituteWith(resultFormal, accFormal, module, err);
 }
 
 YieldOp FoldlOp::bodyYield() {
@@ -307,9 +435,13 @@ FunctionType FoldlOp::getBodyFunctionType() {
 FunctionType FoldlOp::getFunctionTypeForIteration(
     unsigned int i,
     Type resultTypeOfPreviousIteration) {
+  auto inputTupleTypes = getInputTypesAsTupleTypes();
+  if (failed(inputTupleTypes))
+    llvm_unreachable("FoldlOp::getFunctionTypeForIteration: inputs must be TupleTypes");
+
   SmallVector<Type> argumentTypes;
   argumentTypes.push_back(resultTypeOfPreviousIteration);
-  for (TupleType input : getInputTupleTypes())
+  for (TupleType input : *inputTupleTypes)
     argumentTypes.push_back(input.getType(i));
 
   return FunctionType::get(
@@ -322,102 +454,198 @@ FunctionType FoldlOp::getFunctionTypeForIteration(
 llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
     unsigned int i, 
     Type resultTypeOfPreviousIteration) {
+  assert(inputTypesAreTupleTypes() && "FoldlOp::buildSubstitutionForIteration: inputs must be TupleType");
+
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i, resultTypeOfPreviousIteration);
 
-  llvm::DenseMap<Type,Type> substitution;
-  if (failed(trait::unifyTypes(getLoc(), bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), substitution))) {
+  llvm::DenseMap<Type,Type> subst;
+  if (failed(trait::substituteWith(bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), subst))) {
     // this should never happen if FoldlOp::verifySymbolUses succeeds
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
   }
 
-  return substitution;
+  return subst;
 }
 
-LogicalResult FoldlOp::verify() {
+
+//===----------------------------------------------------------------------===//
+// MapOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<std::optional<unsigned>> MapOp::verifyArity(llvm::function_ref<InFlightDiagnostic()> err) {
+  std::optional<unsigned> seen;
+
+  for (auto [idx, v] : llvm::enumerate(getInputs())) {
+    Type ty = v.getType();
+
+    // inputs must be some kind of tuple. if not, error
+    if (!isTupleLike(ty)) {
+      if (err) err() << "input #" << idx << " must be a tuple type, got " << ty;
+      return failure();
+    }
+
+    // concrete tuples must agree on arity
+    if (auto tup = dyn_cast<TupleType>(ty)) {
+      unsigned n = tup.size();
+      if (seen && *seen != n) {
+        if (err) err() << "arity mismatch: input #" << idx
+                       << " has arity " << n << " but a previous input has arity "
+                       << *seen;
+        return failure();
+      }
+      seen = n;
+    }
+  }
+
+  return seen;
+}
+
+LogicalResult MapOp::verify() {
   // check that we have at least one input tuple
   if (getInputs().empty())
     return emitOpError("expected at least one input tuple");
 
-  // verify all inputs are TupleType and collect their arities 
-  SmallVector<TupleType> inputTupleTypes;
-  size_t expectedArity = 0;
+  // body must exist, have exactly #inputs args, and end with tuple.yield
+  Block &body = getBody().front();
+  unsigned numExpectedArgs = getInputs().size();
+  if (body.getNumArguments() != numExpectedArgs)
+    return emitOpError() << "body block must have "
+                         << numExpectedArgs << " arguments (one per input tuple), got "
+                         << body.getNumArguments();
 
-  for (auto [i, input] : llvm::enumerate(getInputs())) {
-    auto tupleType = dyn_cast<TupleType>(input.getType());
-    if (!tupleType)
-      return emitOpError("input tuple #") << i << " must be a 'tuple', got "
-                                    << input.getType();
-    inputTupleTypes.push_back(tupleType);
-
-    // check arity consistency
-    if (i == 0) {
-      expectedArity = tupleType.size();
-    } else if (tupleType.size() != expectedArity) {
-      return emitOpError("all input tuples must have the same arity, expected ")
-             << expectedArity << " but tuple #" << i << " has arity "
-             << tupleType.size();
-    }
-  }
-
-  // check body block
-  Block &bodyBlock = getBody().front();
-
-  // check body argument count matches the number of inputs
-  if (bodyBlock.getNumArguments() != 1 + getInputs().size())
-    return emitOpError("body block must have ") << 1 + getInputs().size()
-           << " arguments to match the number of inputs, got "
-           << bodyBlock.getNumArguments();
-
-  // check that the body block is terminated with YieldOp
-  if (bodyBlock.empty())
+  if (body.empty())
     return emitOpError("body block cannot be empty");
-  if (!isa<YieldOp>(bodyBlock.back()))
+
+  if (!isa<YieldOp>(body.back()))
     return emitOpError("body block must terminate with `tuple.yield`, got ")
-           << bodyBlock.back().getName();
+           << body.back().getName();
+
+  // verify that all concrete tuples agree on arity
+  FailureOr<std::optional<unsigned>> maybeArity = verifyArity([&] {
+    return emitOpError();
+  });
+
+  if (failed(maybeArity))
+    return failure();
+
+  if (*maybeArity) {
+    // known arity path: result must be a concrete tuple with that arity
+    auto resTup = dyn_cast<TupleType>(getResult().getType());
+    if (!resTup)
+      return emitOpError("result must be a tuple type, got ")
+             << getResult().getType();
+    if (resTup.size() != **maybeArity)
+      return emitOpError("arity mismatch: result tuple has arity ") << resTup.size()
+             << ", but input tuples have arity " << **maybeArity;
+  } else {
+    // unknown arity path: result must be !tuple.poly
+    if (!isa<tuple::PolyType>(getResult().getType()))
+      return emitOpError("result must be !tuple.poly when arity is unknown");
+  }
 
   return success();
 }
 
-LogicalResult FoldlOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  // look for the enclosing ModuleOp
-  auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
-  if (!moduleOp)
+LogicalResult MapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // must be inside a module
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module)
     return emitOpError("not contained in a module");
 
-  Location loc = getLoc();
-  MLIRContext* ctx = getContext();
+  if (auto N = getArity())
+    return verifySymbolUsesWithKnownArity(module, *N);
+  return verifySymbolUsesWithUnknownArity();
+}
 
-  // get input tuple types
-  SmallVector<TupleType> inputTupleTypes = getInputTupleTypes();
+LogicalResult MapOp::verifySymbolUsesWithKnownArity(ModuleOp module,
+                                                    unsigned arity) {
+  auto err = [&]{ return emitOpError(); };
 
-  // treat the body as if it is a callee and get its function type
+  // treat the body like a function with type (E1..Em) -> R
   FunctionType calleeTy = getBodyFunctionType();
 
-  // for each tuple element,
-  // unify "iteration" i of the body *in isolation*
-  Type previousIterationResultType = getInit().getType();
-  for (size_t i = 0; i < getArity(); ++i) {
-    // check iteration i like a funciton call
-    // collect a FunctionType for iteration i: these are the call arguments
-    FunctionType callerTy = getFunctionTypeForIteration(i, previousIterationResultType);
+  // check each iteration as if it were a separate function call
+  for (unsigned i = 0; i < arity; ++i) {
+    FunctionType callerTy = getFunctionTypeForIteration(i);
 
-    // unify each iteration in isolation like a separate function call
-    llvm::DenseMap<Type,Type> substitution;
-    if (failed(trait::unifyTypes(loc, calleeTy, callerTy, moduleOp, substitution)))
+    // attempt unification between the body's formal type and
+    // the actual caller type at this iteration
+    if (failed(trait::substituteWith(calleeTy, callerTy, module, err)))
       return failure();
-
-    // update the previous result type by applying the substitution to the body's yield type
-    previousIterationResultType = trait::applySubstitution(substitution, bodyYield().getOperand().getType());
   }
 
-  // unify the final result type with the ascribed result type
-  llvm::DenseMap<Type,Type> substitution;
-  if (failed(trait::unifyTypes(loc, previousIterationResultType, getResult().getType(),
-                               moduleOp, substitution)))
-    return failure();
+  return success();
+}
+
+LogicalResult MapOp::verifySymbolUsesWithUnknownArity() {
+  // with unknown arity, all contributing tuple shapes are polymorphic
+  // enforce that the body is *purely* polymorphic so it can instantiate later
+  FunctionType calleeTy = getBodyFunctionType();
+
+  // every body argument must be purely polymorphic
+  for (auto [i, Ei] : llvm::enumerate(calleeTy.getInputs())) {
+    if (!trait::isPurelyPolymorphicType(Ei))
+      return emitOpError() << "body argument #" << i
+                           << " must be purely polymorphic (all leaves are e.g. '!trait.poly'); got "
+                           << Ei;
+  }
+
+  // the yielded result must also be purely polymorphic
+  Type yieldFormal = calleeTy.getResult(0);
+  if (!trait::isPurelyPolymorphicType(yieldFormal))
+    return emitOpError() << "body yield/result must be purely polymorphic; got "
+                         << yieldFormal;
 
   return success();
+}
+
+YieldOp MapOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+FunctionType MapOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+/// Build the *actual* function type for iteration `elemIdx`.
+/// - Concrete tuple inputs contribute their element at this index.
+/// - Polymorphic tuple inputs contribute the body’s own formal at that position,
+///   so unification sees “actual = formal” (no new binding).
+/// - Result is the element type of the op’s result tuple at `elemIdx`.
+FunctionType MapOp::getFunctionTypeForIteration(unsigned elemIdx) {
+  assert(getArity() && "MapOp::getFunctionTypeForIteration requires known arity");
+
+  SmallVector<Type> argTys;
+  FunctionType calleeTy = getBodyFunctionType();
+
+  for (auto [inputIdx, v] : llvm::enumerate(getInputs())) {
+    if (auto tt = dyn_cast<TupleType>(v.getType())) {
+      argTys.push_back(tt.getType(elemIdx));
+    } else {
+      // input is !tuple.poly — use the body’s formal at this position
+      argTys.push_back(calleeTy.getInput(inputIdx));
+    }
+  }
+
+  Type resultElemTy = getResultTupleType().getType(elemIdx);
+  return FunctionType::get(getContext(), argTys, resultElemTy);
+}
+
+llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
+  auto bodyTy = getBodyFunctionType();
+  auto iterationTy = getFunctionTypeForIteration(i);
+
+  llvm::DenseMap<Type,Type> subst;
+  if (failed(trait::substituteWith(bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), subst))) {
+    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+  }
+
+  return subst;
 }
 
 }
