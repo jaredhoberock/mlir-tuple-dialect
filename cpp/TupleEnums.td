@@ -2,7 +2,7 @@
 #define TUPLE_ENUMS_TD
 
 include "mlir/IR/EnumAttr.td"
-include "Dialect.td"
+include "Tuple.td"
 
 def CmpPredicateAttr : I64EnumAttr<
   "CmpPredicate", "",

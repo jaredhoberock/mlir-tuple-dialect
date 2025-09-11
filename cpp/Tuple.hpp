@@ -3,8 +3,8 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/OpDefinition.h"
-#include "Dialect.hpp.inc"
-#include "Types.hpp"
+#include "Tuple.hpp.inc"
+#include "TupleTypes.hpp"
 
 namespace mlir::tuple {
 

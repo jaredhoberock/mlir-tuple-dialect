@@ -1,7 +1,7 @@
 #include "Canonicalization.hpp"
-#include "Dialect.hpp"
 #include "Monomorphization.hpp"
-#include "Ops.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <Instantiation.hpp>

@@ -1,5 +1,5 @@
-#include "Dialect.hpp"
-#include "Ops.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>

@@ -1,7 +1,7 @@
-#include "Enums.hpp"
 #include "ImplGenerators.hpp"
-#include "Ops.hpp"
-#include "Types.hpp"
+#include "TupleEnums.hpp"
+#include "TupleOps.hpp"
+#include "TupleTypes.hpp"
 #include <ImplResolution.hpp>
 
 namespace mlir::tuple {

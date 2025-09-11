@@ -1,9 +1,9 @@
 #include "Canonicalization.hpp"
 #include "ConvertToLLVM.hpp"
-#include "Dialect.hpp"
 #include "ImplGenerators.hpp"
 #include "Monomorphization.hpp"
-#include "Ops.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
 #include <llvm/ADT/STLExtras.h>
 #include <iostream>
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
@@ -14,7 +14,7 @@
 #include <mlir/Transforms/InliningUtils.h>
 #include <Trait.hpp>
 
-#include "Dialect.cpp.inc"
+#include "Tuple.cpp.inc"
 
 namespace mlir::tuple {
 
@@ -69,7 +69,7 @@ struct TupleInlinerInterface : public DialectInlinerInterface {
 void TupleDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "Ops.cpp.inc"
+#include "TupleOps.cpp.inc"
   >();
 
   registerTypes();

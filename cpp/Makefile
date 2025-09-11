@@ -17,39 +17,39 @@ TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git/mlir-trait-dialect-witness/cpp
 INCLUDES := -I $(MLIR_INCLUDE) -I $(TRAIT_DIALECT_INCLUDE)
 
 # Dialect library sources
-DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Monomorphization.cpp Dialect.cpp Enums.cpp ImplGenerators.cpp Ops.cpp Types.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
 DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
 
 # Generated files
-GENERATED := Dialect.hpp.inc Dialect.cpp.inc Enums.hpp.inc Enums.cpp.inc Ops.hpp.inc Ops.cpp.inc Types.hpp.inc Types.cpp.inc
+GENERATED := Tuple.hpp.inc Tuple.cpp.inc TupleEnums.hpp.inc TupleEnums.cpp.inc TupleOps.hpp.inc TupleOps.cpp.inc TupleTypes.hpp.inc TupleTypes.cpp.inc
 
 .PHONY: all clean
 
 all: libtuple_dialect.a libtuple_dialect.so
 
 # TableGen rules
-Dialect.hpp.inc: Dialect.td
+Tuple.hpp.inc: Tuple.td
 	$(TBLGEN) --gen-dialect-decls $(INCLUDES) $< -o $@
 
-Dialect.cpp.inc: Dialect.td
+Tuple.cpp.inc: Tuple.td
 	$(TBLGEN) --gen-dialect-defs $(INCLUDES) $< -o $@
 
-Enums.hpp.inc: Enums.td
+TupleEnums.hpp.inc: TupleEnums.td
 	$(TBLGEN) --gen-enum-decls $(INCLUDES) $< -o $@
 
-Enums.cpp.inc: Enums.td
+TupleEnums.cpp.inc: TupleEnums.td
 	$(TBLGEN) --gen-enum-defs $(INCLUDES) $< -o $@
 
-Ops.hpp.inc: Ops.td
+TupleOps.hpp.inc: TupleOps.td
 	$(TBLGEN) --gen-op-decls $(INCLUDES) $< -o $@
 
-Ops.cpp.inc: Ops.td
+TupleOps.cpp.inc: TupleOps.td
 	$(TBLGEN) --gen-op-defs $(INCLUDES) $< -o $@
 
-Types.hpp.inc: Types.td
+TupleTypes.hpp.inc: TupleTypes.td
 	$(TBLGEN) --gen-typedef-decls $(INCLUDES) $< -o $@
 
-Types.cpp.inc: Types.td
+TupleTypes.cpp.inc: TupleTypes.td
 	$(TBLGEN) --gen-typedef-defs $(INCLUDES) $< -o $@
 
 # Object file rules

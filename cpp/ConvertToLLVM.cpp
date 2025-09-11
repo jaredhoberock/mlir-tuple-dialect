@@ -1,6 +1,6 @@
 #include "ConvertToLLVM.hpp"
-#include "Dialect.hpp"
-#include "Ops.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Transforms/DialectConversion.h>

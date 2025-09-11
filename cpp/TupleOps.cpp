@@ -1,12 +1,12 @@
-#include "Dialect.hpp"
-#include "Ops.hpp"
-#include "Types.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
+#include "TupleTypes.hpp"
 #include <iostream>
 #include <mlir/IR/Builders.h>
 #include <TraitTypes.hpp>
 
 #define GET_OP_CLASSES
-#include "Ops.cpp.inc"
+#include "TupleOps.cpp.inc"
 
 namespace mlir::tuple {
 

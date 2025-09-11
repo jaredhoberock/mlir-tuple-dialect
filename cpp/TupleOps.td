@@ -7,8 +7,8 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "Dialect.td"
-include "Enums.td"
+include "Tuple.td"
+include "TupleEnums.td"
 
 def TupleLike : TypeConstraint<
   CPred<"::mlir::tuple::isTupleLike($_self)">,

@@ -1,12 +1,12 @@
-#include "Dialect.hpp"
-#include "Types.hpp"
+#include "Tuple.hpp"
+#include "TupleTypes.hpp"
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <TraitOps.hpp>
 
 #define GET_TYPEDEF_CLASSES
-#include "Types.cpp.inc"
+#include "TupleTypes.cpp.inc"
 
 namespace mlir::tuple {
 
@@ -14,7 +14,7 @@ namespace mlir::tuple {
 void TupleDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "Types.cpp.inc"
+#include "TupleTypes.cpp.inc"
   >();
 }
 

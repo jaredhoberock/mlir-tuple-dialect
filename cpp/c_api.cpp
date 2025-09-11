@@ -1,6 +1,6 @@
 #include "c_api.h"
-#include "Dialect.hpp"
-#include "Ops.hpp"
+#include "Tuple.hpp"
+#include "TupleOps.hpp"
 #include <mlir/CAPI/IR.h>
 #include <mlir/CAPI/Pass.h>
 #include <mlir/IR/Builders.h>

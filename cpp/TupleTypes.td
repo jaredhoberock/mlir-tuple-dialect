@@ -2,7 +2,7 @@
 #define TUPLE_TYPES_TD
 
 include "mlir/IR/AttrTypeBase.td"
-include "Dialect.td"
+include "Tuple.td"
 include "TraitTypeInterfaces.td"
 
 def PolyType : TypeDef<TupleDialect, "Poly", [
