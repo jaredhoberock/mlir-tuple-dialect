@@ -12,7 +12,7 @@ CXXFLAGS := -Wall -Werror -g -fPIC `$(LLVM_CONFIG) --cxxflags`
 MLIR_INCLUDE = $(HOME)/dev/git/llvm-project-20/install/include
 
 # Trait dialect include
-TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git/mlir-trait-dialect-witness/cpp
+TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git/mlir-trait-dialect/cpp
 
 INCLUDES := -I $(MLIR_INCLUDE) -I $(TRAIT_DIALECT_INCLUDE)
 
