@@ -272,6 +272,94 @@ StringRef CmpOp::getMethodName() {
   return {};
 }
 
+ParseResult CmpOp::parse(OpAsmParser &p, OperationState &st) {
+  // parse <predicate>
+  auto loc = p.getCurrentLocation();
+  StringRef predTok;
+  if (p.parseKeyword(&predTok))
+    return p.emitError(loc, "expected tuple.cmp predicate keyword");
+
+  loc = p.getCurrentLocation();
+  auto maybePred = symbolizeCmpPredicate(predTok);
+  if (!maybePred)
+    return p.emitError(loc) << "unknown tuple.cmp predicate '" << predTok << "'";
+
+  auto predAttr = CmpPredicateAttr::get(p.getContext(), *maybePred);
+  st.addAttribute("predicate", predAttr);
+
+  // parse ',' %lhs ',' %rhs (',' %claims)?
+  OpAsmParser::UnresolvedOperand lhs, rhs, claims;
+  bool hasClaimsOperand = false;
+
+  if (p.parseComma() || p.parseOperand(lhs) || p.parseComma() || p.parseOperand(rhs))
+    return failure();
+
+  if (succeeded(p.parseOptionalComma())) {
+    hasClaimsOperand = true;
+    auto loc = p.getCurrentLocation();
+    if (p.parseOperand(claims))
+      return p.emitError(loc, "expected claims operand after ','");
+  }
+
+  // parse attrs
+  if (p.parseOptionalAttrDict(st.attributes))
+    return failure();
+
+  // parse ':' !L ',' !R (',' !C)?
+  if (p.parseColon())
+    return failure();
+
+  Type lhsTy, rhsTy, claimsTy;
+  if (p.parseType(lhsTy) || p.parseComma() || p.parseType(rhsTy))
+    return failure();
+
+  bool hasClaimsType = false;
+  SMLoc claimsTyLoc;
+  if (succeeded(p.parseOptionalComma())) {
+    hasClaimsType = true;
+    claimsTyLoc = p.getCurrentLocation();
+    if (p.parseType(claimsTy)) return failure();
+  }
+
+  // coupling rules: either both claims op & type present or neither
+  if (hasClaimsOperand != hasClaimsType) {
+    if (hasClaimsType) {
+      return p.emitError(claimsTyLoc,
+        "claims type provided without claims operand");
+    } else {
+      auto loc = claims.location.isValid() ? claims.location : p.getCurrentLocation();
+      return p.emitError(loc,
+        "claims operand provided without claims type");
+    }
+  }
+
+  // result type: i1
+  st.addTypes(p.getBuilder().getI1Type());
+
+  // resolve operands
+  SmallVector<OpAsmParser::UnresolvedOperand,3> ops = {lhs, rhs};
+  SmallVector<Type, 3> types = {lhsTy, rhsTy};
+  if (hasClaimsOperand) {
+    ops.push_back(claims);
+    types.push_back(claimsTy);
+  }
+
+  loc = lhs.location.isValid() ? lhs.location : p.getCurrentLocation();
+  if (p.resolveOperands(ops, types, loc, st.operands))
+    return failure();
+
+  return success();
+}
+
+void CmpOp::print(OpAsmPrinter &p) {
+  // <pred>, %lhs, %rhs[, %claims] attrs : !L, !R[, !C]
+  p << getPredicate() << ", " << getLhs() << ", " << getRhs();
+  if (auto c = getClaims()) p << ", " << c;
+  p.printOptionalAttrDict((*this)->getAttrs(), /*elided=*/{"predicate"});
+  p << " : " << getLhs().getType() << ", " << getRhs().getType();
+  if (auto c = getClaims()) p << ", " << c.getType();
+}
+
 static FailureOr<mlir::trait::TraitOp> getTraitInModule(
   ModuleOp module,
   FlatSymbolRefAttr traitRef,

@@ -93,11 +93,7 @@ def CmpOp : TupleOp<"cmp", [
     StringRef getMethodName();
   }];
 
-  let assemblyFormat = [{
-    $predicate `,` $lhs `,` $rhs
-    (`,` $claims^)? attr-dict `:` type($lhs) `,` type($rhs) (`,` type($claims)^)?
-  }];
-
+  let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
 
