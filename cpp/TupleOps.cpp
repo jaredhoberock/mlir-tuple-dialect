@@ -353,7 +353,7 @@ ParseResult CmpOp::parse(OpAsmParser &p, OperationState &st) {
 
 void CmpOp::print(OpAsmPrinter &p) {
   // <pred>, %lhs, %rhs[, %claims] attrs : !L, !R[, !C]
-  p << getPredicate() << ", " << getLhs() << ", " << getRhs();
+  p << " " << getPredicate() << ", " << getLhs() << ", " << getRhs();
   if (auto c = getClaims()) p << ", " << c;
   p.printOptionalAttrDict((*this)->getAttrs(), /*elided=*/{"predicate"});
   p << " : " << getLhs().getType() << ", " << getRhs().getType();
