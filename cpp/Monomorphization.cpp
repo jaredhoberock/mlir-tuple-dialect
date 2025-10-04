@@ -45,11 +45,13 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     rewriter.setInsertionPointToEnd(module.getBody());
     Location loc = rewriter.getUnknownLoc();
 
+    // XXX TODO we shouldn't assume that the trait to be mapped has two type parameters
+
     // create:
     //
-    // !S = trait.poly<fresh>
-    // !O = trait.poly<fresh>
-    // !C = trait.poly<fresh>
+    // !S = trait.poly<unique>
+    // !O = trait.poly<unique>
+    // !C = trait.poly<unique>
     // trait.trait @tuple.Map<mapped-trait-name>[!S,!O,!C] attributes {
     //   tuple.impl_generator = "map",
     //   tuple.mapped_trait = @<mapped-trait-name>
@@ -57,9 +59,9 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     //   func.func private @claims() -> !C
     // }
 
-    Type S = trait::PolyType::fresh(ctx);
-    Type O = trait::PolyType::fresh(ctx);
-    Type C = trait::PolyType::fresh(ctx);
+    Type S = trait::PolyType::getUnique(ctx);
+    Type O = trait::PolyType::getUnique(ctx);
+    Type C = trait::PolyType::getUnique(ctx);
     
     auto trait = rewriter.create<trait::TraitOp>(
       loc,
@@ -193,8 +195,8 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
     //   %resi = AND or OR with %acc
     //   yield %resi : i1
     {
-      Type Li = trait::PolyType::fresh(ctx);
-      Type Ri = trait::PolyType::fresh(ctx);
+      Type Li = trait::PolyType::getUnique(ctx);
+      Type Ri = trait::PolyType::getUnique(ctx);
       Type Ci = trait::ClaimType::get(ctx, op.getTraitRefAttr(), {Li,Ri});
 
       Block *body = rewriter.createBlock(&fold.getBody());
@@ -313,8 +315,8 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
     {
       PatternRewriter::InsertionGuard guard(rewriter);
 
-      Type Li = trait::PolyType::fresh(ctx);
-      Type Ri = trait::PolyType::fresh(ctx);
+      Type Li = trait::PolyType::getUnique(ctx);
+      Type Ri = trait::PolyType::getUnique(ctx);
       Type Ci = trait::ClaimType::get(ctx, op.getTraitRefAttr(), {Li, Ri});
 
       Block *body = rewriter.createBlock(&fold.getBody());

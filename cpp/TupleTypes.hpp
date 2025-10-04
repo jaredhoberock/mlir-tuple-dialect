@@ -14,10 +14,10 @@ namespace mlir::tuple {
 // it not, returns the Type of the first failing element
 std::optional<Type> firstElementTypeWithoutImplForTrait(TupleType tuple_ty, mlir::trait::TraitOp traitOp);
 
-inline TupleType getTupleTypeWithFreshPolymorphicElements(MLIRContext* ctx, unsigned int arity) {
+inline TupleType getTupleTypeWithUniquePolymorphicElements(MLIRContext* ctx, unsigned int arity) {
   SmallVector<Type> elemPolys;
   for (unsigned int i = 0; i < arity; ++i) {
-    elemPolys.push_back(trait::PolyType::fresh(ctx));
+    elemPolys.push_back(trait::PolyType::getUnique(ctx));
   }
   return TupleType::get(ctx, elemPolys);
 }

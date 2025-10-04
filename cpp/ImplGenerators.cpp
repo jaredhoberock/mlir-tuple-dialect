@@ -22,13 +22,13 @@ static std::optional<unsigned> getArityOfFirstTuple(TypeRange types) {
   return std::nullopt;
 }
 
-static SmallVector<TupleType> getTupleTypesWithFreshPolymorphicElements(
+static SmallVector<TupleType> getTupleTypesWithUniquePolymorphicElements(
     MLIRContext* ctx,
     unsigned numTuples,
     unsigned arity) {
   SmallVector<TupleType> result;
   for (int i = 0; i < numTuples; ++i) {
-    result.push_back(getTupleTypeWithFreshPolymorphicElements(ctx, arity));
+    result.push_back(getTupleTypeWithUniquePolymorphicElements(ctx, arity));
   }
   return result;
 }
@@ -149,11 +149,11 @@ struct MapGenerator : trait::ImplGenerator {
 
     // create k fresh polymorphic tuple types of the requested arity n:
     // Ti := tuple<TiE1..TiEn>
-    // where each TiEj is a fresh !trait.poly
+    // where each TiEj is a unique !trait.poly
     MLIRContext *ctx = trait.getContext();
-    SmallVector<TupleType> polyTupleTypes = getTupleTypesWithFreshPolymorphicElements(ctx, k, *arity);
+    SmallVector<TupleType> polyTupleTypes = getTupleTypesWithUniquePolymorphicElements(ctx, k, *arity);
 
-    // XXX TODO if we don't end up generating an impl, then we've "wasted" the fresh args here
+    // XXX TODO if we don't end up generating an impl, then we've "wasted" the unique args here
     //          consider building a guard that reclaims the unused unique IDs
 
     // create a TupleType representing the trait mapped across the elements of these tuples:
@@ -176,7 +176,7 @@ struct MapGenerator : trait::ImplGenerator {
     if (!module) return failure();
 
     // check that the wanted claim can unify with our formal claim
-    if (failed(substituteWith(ourClaim, wanted, module)))
+    if (failed(buildSpecializationSubstitution(ourClaim, wanted, module)))
       return failure();
 
     // build assumptions: one @MappedTrait[...] per element position
@@ -252,9 +252,9 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
     // 1. it does not already exist, and
     // 2. the @tuple.MapPartialEq trait does exist:
     //
-    // !S = !tuple.poly<fresh>
-    // !O = !tuple.poly<fresh>
-    // !C = !tuple.poly<fresh>
+    // !S = !tuple.poly<unique>
+    // !O = !tuple.poly<unique>
+    // !C = !tuple.poly<unique>
     // trait.impl @tuple.PartialEq for @PartialEq[!S,!O] where [
     //   @tuple.MapPartialEq[!S,!O,!C]
     // ] {
@@ -288,9 +288,9 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
       return failure();
 
     // build polymorphic tuple parameters
-    auto S = tuple::PolyType::fresh(ctx);
-    auto O = tuple::PolyType::fresh(ctx);
-    auto C = tuple::PolyType::fresh(ctx);
+    auto S = tuple::PolyType::getUnique(ctx);
+    auto O = tuple::PolyType::getUnique(ctx);
+    auto C = tuple::PolyType::getUnique(ctx);
 
     // our impl's claim: !trait.claim<PartialEq[!S,!O]>
     auto partialEqRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
@@ -355,9 +355,9 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 /// TuplePartialOrdGenerator synthesizes a polymorphic `trait.impl` of
 /// PartialOrd for tuples:
 ///
-///   !S = !tuple.poly<fresh>
-///   !O = !tuple.poly<fresh>
-///   !C = !tuple.poly<fresh>
+///   !S = !tuple.poly<unique>
+///   !O = !tuple.poly<unique>
+///   !C = !tuple.poly<unique>
 ///   trait.impl @tuple.PartialOrd for @PartialOrd[!S,!O] where [
 ///     @tuple.MapPartialOrd[!S,!O,!C]
 ///   ] {
@@ -395,9 +395,9 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
       return failure();
 
     // polymorphic tuple type parameters
-    auto S = tuple::PolyType::fresh(ctx);
-    auto O = tuple::PolyType::fresh(ctx);
-    auto C = tuple::PolyType::fresh(ctx);
+    auto S = tuple::PolyType::getUnique(ctx);
+    auto O = tuple::PolyType::getUnique(ctx);
+    auto C = tuple::PolyType::getUnique(ctx);
 
     // our impl's self claim: !trait.claim<@PartialOrd[!S,!O]>
     auto partialOrdRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());

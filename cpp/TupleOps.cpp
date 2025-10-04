@@ -148,7 +148,7 @@ LogicalResult CmpOp::verify() {
   return success();
 }
 
-static FailureOr<Type> getExpectedClaimsTypeForCmpOp(
+static FailureOr<Type> getFormalClaimsTypeForCmpOp(
   MLIRContext* ctx,
   Type L,
   Type R,
@@ -164,16 +164,16 @@ static FailureOr<Type> getExpectedClaimsTypeForCmpOp(
 
   // unknown arity -> expect !tuple.poly
   if (!arity)
-    return tuple::PolyType::fresh(ctx);
+    return tuple::PolyType::getUnique(ctx);
 
   auto LT = dyn_cast<TupleType>(L);
   auto RT = dyn_cast<TupleType>(R);
 
-  // if exactly one side is concrete, synthesize a tuple with fresh poly elements for the other
+  // if exactly one side is concrete, synthesize a tuple with unique poly elements for the other
   if (!LT)
-    LT = getTupleTypeWithFreshPolymorphicElements(ctx, *arity);
+    LT = getTupleTypeWithUniquePolymorphicElements(ctx, *arity);
   else if (!RT)
-    RT = getTupleTypeWithFreshPolymorphicElements(ctx, *arity);
+    RT = getTupleTypeWithUniquePolymorphicElements(ctx, *arity);
 
   // now both must be TupleType
   assert(LT && RT && "Expected both LT and RT to be TupleType");
@@ -226,7 +226,7 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto module = getOperation()->getParentOfType<ModuleOp>();
   if (!module) return emitOpError() << "not in a module";
 
-  auto expectedClaimsTy = getExpectedClaimsTypeForCmpOp(
+  auto formalClaimsTy = getFormalClaimsTypeForCmpOp(
     getContext(),
     getLhs().getType(),
     getRhs().getType(),
@@ -234,9 +234,10 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
     getArity(),
     errFn
   );
-  if (failed(expectedClaimsTy)) return failure();
+  if (failed(formalClaimsTy)) return failure();
 
-  if (failed(trait::substituteWith(*expectedClaimsTy, claims.getType(), module, errFn)))
+  // check that the types can unify
+  if (failed(trait::buildSpecializationSubstitution(*formalClaimsTy, claims.getType(), module, errFn)))
     return failure();
 
   return success();
@@ -463,18 +464,17 @@ LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned 
   for (unsigned i = 0; i < arity; ++i) {
     FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
-    // substitute each iteration in isolation as if it was a separate function call
-    DenseMap<Type,Type> subst;
-    if (failed(trait::substituteWith(calleeTy, callerTy, module, subst, err)))
-      return failure();
+    // unify each iteration in isolation as if it was a separate function call
+    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    if (failed(subst)) return failure();
 
     // update the previous result type by applying the substitution
     // to the body's result type
-    prev = trait::applySubstitutionToFixedPoint(subst, R);
+    prev = trait::applySubstitutionToFixedPoint(*subst, R);
   }
 
-  // substitute the formal result type with the actual final result type
-  return trait::substituteWith(getResult().getType(), prev, module, err);
+  // unify the formal result type with the actual final result type
+  return trait::buildSpecializationSubstitution(getResult().getType(), prev, module, err);
 }
 
 LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
@@ -488,8 +488,8 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   Type initActual       = getInit().getType();   // actual type of %init
   Type resultFormal     = getResult().getType(); // op's formal result type
 
-  // formal acc must accept the actual init type
-  if (failed(trait::substituteWith(accFormal, initActual, module, err)))
+  // must be able to specialize the formal acc with the actual init type
+  if (failed(trait::buildSpecializationSubstitution(accFormal, initActual, module, err)))
     return failure();
 
   // every non-accumulator body arg type must be purely polymorphic
@@ -501,11 +501,11 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   }
 
   // closure: one step of the body must preserve the accumulator shape
-  if (failed(trait::substituteWith(accFormal, yieldFormal, module, err)))
+  if (failed(trait::buildSpecializationSubstitution(accFormal, yieldFormal, module, err)))
     return failure();
 
   // op result consistency: op's formal result must match the accumulator
-  return trait::substituteWith(resultFormal, accFormal, module, err);
+  return trait::buildSpecializationSubstitution(resultFormal, accFormal, module, err);
 }
 
 YieldOp FoldlOp::bodyYield() {
@@ -547,13 +547,13 @@ llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i, resultTypeOfPreviousIteration);
 
-  llvm::DenseMap<Type,Type> subst;
-  if (failed(trait::substituteWith(bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), subst))) {
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  auto subst = trait::buildSpecializationSubstitution(bodyTy, iterationTy, module);
+  if (failed(subst)) {
     // this should never happen if FoldlOp::verifySymbolUses succeeds
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
   }
-
-  return subst;
+  return *subst;
 }
 
 
@@ -659,7 +659,7 @@ LogicalResult MapOp::verifySymbolUsesWithKnownArity(ModuleOp module,
 
     // attempt unification between the body's formal type and
     // the actual caller type at this iteration
-    if (failed(trait::substituteWith(calleeTy, callerTy, module, err)))
+    if (failed(trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err)))
       return failure();
   }
 
@@ -728,12 +728,12 @@ llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i);
 
-  llvm::DenseMap<Type,Type> subst;
-  if (failed(trait::substituteWith(bodyTy, iterationTy, getOperation()->getParentOfType<ModuleOp>(), subst))) {
-    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  auto subst = trait::buildSpecializationSubstitution(bodyTy, iterationTy, module);
+  if (failed(subst)) {
+    llvm_unreachable("MapOp::buildSubstitutionForIteration: unification failed");
   }
-
-  return subst;
+  return *subst;
 }
 
 }

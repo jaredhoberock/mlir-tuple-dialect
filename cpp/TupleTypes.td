@@ -6,8 +6,8 @@ include "Tuple.td"
 include "TraitTypeInterfaces.td"
 
 def PolyType : TypeDef<TupleDialect, "Poly", [
-  MonomorphizableTypeInterface,
-  TypeVariableInterface
+  GenericTypeInterface,
+  PolymorphicTypeInterface
 ]> {
   let mnemonic = "poly";
   let summary = "Placeholder type representing a polymorphic tuple type";
@@ -18,29 +18,61 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
 
     The `unique_id` serves as a unique identifier for this type within the module.
 
-    Alternatively, `fresh` can be specified instead of `unique_id` to request a "fresh"
-    `!tuple.poly` with an automatically-generated `unique_id`. Fresh IDs are allocated in
-    monotonically decreasing order beginning at `-1`.
+    Alternatively, `unique` can be specified instead of `unique_id` to request a 
+    `!tuple.poly` with an automatically-generated `unique_id`. Unique IDs are
+    allocated in monotonically decreasing order beginning at `-1`.
+
+    `!tuple.poly` is identical to `!trait.poly` *except* that it instantiates
+    into `!tuple.infer`. A `!tuple.infer` type will unify only with a tuple-like type.
   }];
 
   let extraClassDeclaration = [{
-    // create a "fresh" PolyType with an unused unique_id
-    static PolyType fresh(MLIRContext* ctx);
+    // create a PolyType with an unused unique_id
+    static PolyType getUnique(MLIRContext* ctx);
 
-    // for MonomorphizableTypeInterface
-    bool isMonomorphic() const {
-      return false;
-    }
+    // for GenericTypeInterface
+    Type instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter);
 
-    LogicalResult substituteWith(Type other,
-                                 ModuleOp module,
-                                 DenseMap<Type,Type> &substitution,
-                                 llvm::function_ref<InFlightDiagnostic()> emitError) const;
+    // for PolymorphicTypeInterface
+    bool isPolymorphic() const { return true; }
   }];
 
   let parameters = (ins "int":$unique_id);
 
   let hasCustomAssemblyFormat = 1;
+}
+
+// Represents an inference variable used during type inference
+def InferenceType : TypeDef<TupleDialect, "Inference", [
+  PolymorphicTypeInterface,
+  TypeVariableInterface,
+  UnificationTypeInterface
+]> {
+  let mnemonic = "infer";
+  let summary = "INTERNAL: Type inference variable (should not appear in final IR)";
+
+  let description = [{
+    The `!tuple.infer` type represents a *type inference variable* created during
+    impl resolution and type checking.
+
+    `!tuple.infer` is identical to `!trait.infer` *except* that it will unify
+    only with another tuple-like type.
+  }];
+
+  let extraClassDeclaration = [{
+    // for PolymorphicTypeInterface
+    bool isPolymorphic() const { return true; }
+
+    // for UnificationTypeInterface
+    LogicalResult unify(Type other,
+                        ModuleOp module,
+                        DenseMap<Type,Type> &subst,
+                        llvm::function_ref<InFlightDiagnostic()> emitError);
+  }];
+
+  let parameters = (ins "uint64_t":$unique_id, "uint32_t":$origin_poly_id);
+
+  let assemblyFormat = "`<` $unique_id `,` $origin_poly_id `>`";
 }
 
 #endif // TUPLE_TYPES_TD

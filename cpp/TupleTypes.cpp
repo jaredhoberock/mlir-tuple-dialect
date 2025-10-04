@@ -1,9 +1,11 @@
 #include "Tuple.hpp"
 #include "TupleTypes.hpp"
+#include <atomic>
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <TraitOps.hpp>
+#include <TraitTypes.hpp>
 
 #define GET_TYPEDEF_CLASSES
 #include "TupleTypes.cpp.inc"
@@ -23,8 +25,26 @@ void TupleDialect::registerTypes() {
 // PolyType
 //===----------------------------------------------------------------------===//
 
-PolyType PolyType::fresh(MLIRContext* ctx) {
-  return PolyType::get(ctx, trait::freshPolyTypeId());
+static int nextPolyTypeId() {
+  static std::atomic<int> counter{-1};
+  return counter.fetch_sub(1, std::memory_order_relaxed);
+}
+
+PolyType PolyType::getUnique(MLIRContext* ctx) {
+  return PolyType::get(ctx, nextPolyTypeId());
+}
+
+Type PolyType::instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter) {
+  // check memo first - if we've already instantiated this PolyType,
+  // return the instance
+  if (auto it = inst.find(*this); it != inst.end()) {
+    return it->second;
+  }
+
+  // create and remember a fresh inference var for this poly
+  auto fresh = InferenceType::get(getContext(), idCounter++, getUniqueId());
+  inst[*this] = fresh;
+  return fresh;
 }
 
 Type PolyType::parse(AsmParser &parser) {
@@ -32,7 +52,7 @@ Type PolyType::parse(AsmParser &parser) {
   int uniqueId = 0;
 
   // parse this:
-  // <fresh> or
+  // <unique> or
   // <int>
 
   if (parser.parseLess()) {
@@ -40,11 +60,11 @@ Type PolyType::parse(AsmParser &parser) {
     return Type();
   }
 
-  if (succeeded(parser.parseOptionalKeyword("fresh"))) {
-    uniqueId = trait::freshPolyTypeId();
+  if (succeeded(parser.parseOptionalKeyword("unique"))) {
+    uniqueId = nextPolyTypeId();
   } else {
     if (parser.parseInteger(uniqueId)) {
-      parser.emitError(parser.getNameLoc(), "expected integer or 'fresh'");
+      parser.emitError(parser.getNameLoc(), "expected integer or 'unique'");
       return Type();
     }
     
@@ -62,11 +82,16 @@ void PolyType::print(AsmPrinter &printer) const {
   printer << "<" << getUniqueId() << ">";
 }
 
-LogicalResult PolyType::substituteWith(
-  Type other, 
+
+//===----------------------------------------------------------------------===//
+// InferenceType
+//===----------------------------------------------------------------------===//
+
+LogicalResult InferenceType::unify(
+  Type other,
   ModuleOp /*module*/,
   DenseMap<Type,Type> &subst,
-  llvm::function_ref<InFlightDiagnostic()> err) const {
+  llvm::function_ref<InFlightDiagnostic()> err) {
   Type self = *this;
 
   // normalize
@@ -78,9 +103,9 @@ LogicalResult PolyType::substituteWith(
   // if self is already bound, check consistency
   if (auto it = subst.find(self); it != subst.end()) {
     if (it->second != other) {
-      if (err) return err() << "mismatched substitution for type "
-                            << self << ": expected "
-                            << it->second << ", but found " << other;
+      if (err) return err() << "inference variable " << self
+                            << " already bound to " << it->second
+                            << ", cannot bind to " << other;
       return failure();
     }
     return success();
@@ -101,8 +126,8 @@ LogicalResult PolyType::substituteWith(
     return failure();
   }
 
-  // accept either PolyType or a concrete TupleType
-  if (mlir::isa<PolyType>(other) || mlir::isa<TupleType>(other)) {
+  // accept only tuple-like types
+  if (isTupleLike(other)) {
     subst[self] = other;
     return success();
   }

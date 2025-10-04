@@ -14,6 +14,11 @@ inline bool isTupleLike(Type ty) {
     return true;
   }
 
+  // or the symbolic !tuple.infer type
+  if (isa<InferenceType>(ty)) {
+    return true;
+  }
+
   // otherwise, check if ty is a concrete tuple type
   if (isa<TupleType>(ty)) {
     return true;
