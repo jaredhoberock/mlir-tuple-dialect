@@ -194,7 +194,7 @@ struct MapGenerator : trait::ImplGenerator {
       loc,
       StringAttr::get(ctx, name),
       ourClaim.getTraitApplication(),
-      ConstraintsAttr::get(ctx, assumptions)
+      TraitApplicationArrayAttr::get(ctx, assumptions)
     );
 
     // define the @claims method body:
@@ -298,7 +298,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 
     // one assumption: @tuple.MapPartialEq[!S,!O,!C]
     auto assumption = TraitApplicationAttr::get(ctx, mapPartialEqRef, {S,O,C});
-    auto assumptions = ConstraintsAttr::get(ctx, {assumption});
+    auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
 
     // create impl
     Location loc = rewriter.getUnknownLoc();
@@ -405,7 +405,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
     // one assumption on the mapper: @tuple.MapPartialOrd[!S,!O,!C]
     auto assumption = TraitApplicationAttr::get(ctx, mapRef, {S, O, C});
-    auto assumptions = ConstraintsAttr::get(ctx, {assumption});
+    auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
 
     // create the impl op
     Location loc = rewriter.getUnknownLoc();
