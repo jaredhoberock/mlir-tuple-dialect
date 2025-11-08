@@ -18,6 +18,58 @@ def ConcreteTuple : TypeConstraint<
   CPred<"::mlir::TupleType::classof($_self)">,
   "any concrete tuple type">;
 
+def AllOp : TupleOp<"all", [
+  AutomaticAllocationScope,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  OpAsmOpInterface
+]> {
+  let summary = "Logical AND of a per-element predicate over a tuple";
+  let description = [{
+    Executes a region once per element of the input tuple; the region takes the
+    current element as a single argument and must yield an `i1`. The op returns
+    the logical AND of all yielded bits. For `tuple<>`, the result is `true`.
+  }];
+
+  let arguments = (ins TupleLike:$input);
+  let results = (outs I1:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) $body";
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    YieldOp bodyYield();
+
+    FunctionType getBodyFunctionType();
+    FunctionType getFunctionTypeForIteration(unsigned int i);
+
+    // this method succeeds only when the input tuple is a concrete TupleTYpe
+    // element types of the input tuple are still allowed to be polymorphic
+    FailureOr<TupleType> getInputTupleTypeWithKnownArity() {
+      if (auto tt = dyn_cast<TupleType>(getInput().getType())) {
+        return success(tt);
+      }
+      return failure();
+    }
+
+    std::optional<unsigned> getArity() {
+      auto maybeTupleOfKnownArity = getInputTupleTypeWithKnownArity();
+      if (succeeded(maybeTupleOfKnownArity)) return maybeTupleOfKnownArity->size();
+      return std::nullopt;
+    }
+
+    LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
+    LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Allow the dialect prefix to be omitted.
+    static StringRef getDefaultDialect() { return "tuple"; }
+  }];
+}
+
 def AppendOp : TupleOp<"append", [Pure]> {
   let summary = "Append a element to the end of a tuple";
   let description = [{
@@ -294,7 +346,7 @@ def MapOp : TupleOp<"map", [
 }
 
 def YieldOp : TupleOp<"yield", [
-  ParentOneOf<["FoldlOp","MapOp"]>,
+  ParentOneOf<["AllOp","FoldlOp","MapOp"]>,
   Pure,
   ReturnLike,
   Terminator

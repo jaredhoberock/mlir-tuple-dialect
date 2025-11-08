@@ -10,6 +10,93 @@
 
 namespace mlir::tuple {
 
+LogicalResult AllOp::verify() {
+  // body must exist, have exactly 1 arg, and end with tuple.yield
+  Block &body = getBody().front();
+  unsigned numExpectedArgs = 1;
+  if (body.getNumArguments() != numExpectedArgs)
+    return emitOpError() << "body block must have exactly one argument, got "
+                         << body.getNumArguments();
+
+  if (body.empty())
+    return emitOpError("body block cannot be empty");
+
+  if (!isa<YieldOp>(body.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << body.back().getName();
+
+  // ensure region yields i1
+  Type yieldedTy = bodyYield().getResult().getType();
+  if (!yieldedTy.isInteger(1))
+    return emitOpError() << "body block must yield i1, got " << yieldedTy;
+  return success();
+}
+
+YieldOp AllOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+FunctionType AllOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+FunctionType AllOp::getFunctionTypeForIteration(unsigned int i) {
+  auto inputTupleType = getInputTupleTypeWithKnownArity();
+  if (failed(inputTupleType))
+    llvm_unreachable("AllOp::getFunctionTypeForIteration: input must be TupleType");
+
+  return FunctionType::get(
+      getContext(),
+      {inputTupleType->getType(i)},
+      bodyYield().getOperand().getType()
+  );
+}
+
+LogicalResult AllOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // must be inside a module
+  auto moduleOp = getOperation()->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return emitOpError("not contained in a module");
+
+  if (auto N = getArity())
+    return verifySymbolUsesWithKnownArity(moduleOp, *N);
+  return verifySymbolUsesWithUnknownArity(moduleOp);
+}
+
+LogicalResult AllOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity) {
+  auto err = [&]{ return emitOpError(); };
+
+  // treat the body as a function: (Eformal) -> i1
+  FunctionType calleeTy = getBodyFunctionType();
+
+  // for each tuple element i, the "caller" is: (Eactual) -> i1
+  for (unsigned i = 0; i < arity; ++i) {
+    FunctionType callerTy = getFunctionTypeForIteration(i);
+
+    // unify body formal with actual for this iteration
+    if (failed(trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err)))
+      return failure();
+  }
+  return success();
+}
+
+LogicalResult AllOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
+  // Callee type is (Eformal) -> i1. Ensure Eformal is purely polymorphic.
+  FunctionType calleeTy = getBodyFunctionType();
+  Type Eformal = calleeTy.getInput(0);
+  if (!trait::isPurelyPolymorphicType(Eformal))
+    return emitOpError()
+           << "body argument must be purely polymorphic (all leaves e.g. '!trait.poly'); got "
+           << Eformal;
+
+  // Yield/result is i1 and already checked in verify().
+  return success();
+}
+
 LogicalResult AppendOp::verify() {
   MLIRContext* ctx = getContext();
 

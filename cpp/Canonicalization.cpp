@@ -7,6 +7,21 @@
 
 namespace mlir::tuple {
 
+struct AllOpCanonicalization : public OpRewritePattern<AllOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AllOp allOp,
+                                PatternRewriter& rewriter) const override {
+    // if the arity is known to be zero, all -> true
+    if (auto arity = allOp.getArity(); arity && *arity == 0) {
+      rewriter.replaceOpWithNewOp<arith::ConstantOp>(allOp, rewriter.getBoolAttr(true));
+      return success();
+    }
+
+    return failure();
+  }
+};
+
 struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -90,6 +105,7 @@ struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
 
 void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<
+    AllOpCanonicalization,
     AppendOpCanonicalization,
     CmpOpCanonicalization,
     GetOpCanonicalization

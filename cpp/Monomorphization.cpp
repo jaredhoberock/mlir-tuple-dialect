@@ -149,6 +149,65 @@ struct CmpOpMonoSynthesizeClaims : OpRewritePattern<CmpOp> {
   }
 };
 
+// rewrites tuple.all into a tuple.foldl op
+struct AllOpLowering : OpRewritePattern<AllOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AllOp op,
+                                PatternRewriter& rewriter) const override {
+    Location loc = op.getLoc();
+    Type i1Ty = rewriter.getI1Type();
+
+    // if the arity is known to be zero, `all` is vacuously true
+    if (auto arity = op.getArity(); arity && *arity == 0) {
+      rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getBoolAttr(true));
+      return success();
+    }
+
+    // build init = true and create tuple.foldl over the input tuple
+    Value init = rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
+
+    // tuple.foldl expects: result type, init, inputs...
+    // our single input is the tuple being tested by tuple.all
+    auto fold = rewriter.create<FoldlOp>(
+      loc,
+      /*resultTy=*/i1Ty,
+      init,
+      /*inputs=*/ValueRange{op.getInput()}
+    );
+
+    // we will splice the all-body block into the foldl region, then:
+    // - insert an accumulator arg (i1) at position 0
+    // - AND the old yielded predicate with the accumulator
+    // - yield the conjunction
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+
+      // new block inside fold with (%acc, %elem)
+      Block *newBody = rewriter.createBlock(&fold.getBody());
+      Type elemFormalTy = op.getBody().front().getArgument(0).getType();
+      newBody->addArguments({i1Ty, elemFormalTy}, {loc, loc});
+
+      // move original body ops into the new block, remapping %oldElem -> %elem
+      Block &oldBody = op.getBody().front();
+      rewriter.mergeBlocks(&oldBody, newBody, /*argValues=*/ValueRange{newBody->getArgument(1)});
+
+      // grab the (now moved) yield and AND its operand with %acc
+      auto oldYield = fold.bodyYield();
+      Value pred = oldYield.getOperand();
+
+      rewriter.setInsertionPoint(oldYield);
+      Value both = rewriter.create<arith::AndIOp>(loc, newBody->getArgument(0), pred);
+
+      // Replace yield with a fresh yield of %both
+      rewriter.replaceOpWithNewOp<tuple::YieldOp>(oldYield, both);
+    }
+
+    rewriter.replaceOp(op, fold.getResult());
+    return success();
+  }
+};
+
 // rewrites a tuple.cmp with eq/ne, lhs, rhs, and claims operands
 // into a tuple.foldl op
 struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
@@ -370,6 +429,7 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
   patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialOrd");
 
   patterns.add<
+    AllOpLowering,
     CmpOpMonoSynthesizeClaims,
     CmpOpPartialEqLowering,
     CmpOpPartialOrdLowering
@@ -500,6 +560,11 @@ void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
   patterns.add<
     CmpOpPartialEqLowering,
     CmpOpPartialOrdLowering
+  >(patterns.getContext());
+
+  // tuple.all lowers to tuple.foldl, so add its lowering
+  patterns.add<
+    AllOpLowering
   >(patterns.getContext());
 
   // tuple.foldl and tuple.map lowerings instantiate polymorphic regions,
