@@ -45,6 +45,61 @@ struct AppendOpCanonicalization : public OpRewritePattern<AppendOp> {
   }
 };
 
+struct CatOpCanonicalization : public OpRewritePattern<CatOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  static bool isEmptyTupleValue(Value v) {
+    if (auto tt = dyn_cast<TupleType>(v.getType()))
+      if (tt.size() == 0) return true;
+    return false;
+  }
+
+  LogicalResult matchAndRewrite(CatOp op,
+                                PatternRewriter& rewriter) const override {
+    Value lhs = op.getLhs();
+    Value rhs = op.getRhs();
+
+    // check for empty tuples
+    // cat (), rhs -> rhs
+    if (isEmptyTupleValue(lhs)) {
+      rewriter.replaceOp(op, rhs);
+      return success();
+    }
+
+    // cat lhs, () -> lhs
+    if (isEmptyTupleValue(rhs)) {
+      rewriter.replaceOp(op, lhs);
+      return success();
+    }
+
+    // fuse adjacent makes
+    // cat make(xs...), make(ys...) -> make(xs..., ys...)
+    if (auto lhsMake = lhs.getDefiningOp<tuple::MakeOp>()) {
+      if (auto rhsMake = rhs.getDefiningOp<tuple::MakeOp>()) {
+        SmallVector<Value> elems;
+        elems.reserve(lhsMake->getNumOperands() + rhsMake->getNumOperands());
+        elems.append(lhsMake->operand_begin(), lhsMake->operand_end());
+        elems.append(rhsMake->operand_begin(), rhsMake->operand_end());
+
+        rewriter.replaceOpWithNewOp<tuple::MakeOp>(op, elems);
+        return success();
+      }
+    }
+
+    // reassociate: cat(cat(a,b), c) -> cat(a, cat(b,c))
+    if (auto innerCat = lhs.getDefiningOp<CatOp>()) {
+      Value a = innerCat.getLhs();
+      Value b = innerCat.getRhs();
+
+      auto bc = rewriter.create<CatOp>(op.getLoc(), b, rhs);
+      rewriter.replaceOpWithNewOp<CatOp>(op, a, bc.getResult());
+      return success();
+    }
+
+    return failure();
+  }
+};
+
 struct CmpOpCanonicalization : public OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -107,6 +162,7 @@ void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<
     AllOpCanonicalization,
     AppendOpCanonicalization,
+    CatOpCanonicalization,
     CmpOpCanonicalization,
     GetOpCanonicalization
   >(patterns.getContext());

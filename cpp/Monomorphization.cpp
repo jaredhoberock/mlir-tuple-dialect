@@ -208,6 +208,50 @@ struct AllOpLowering : OpRewritePattern<AllOp> {
   }
 };
 
+// rewrites tuple.cat into tuple.make once the arity of inputs are known
+struct CatOpLowering : OpRewritePattern<CatOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(CatOp op,
+                                PatternRewriter& rewriter) const override {
+    // we only lower when both operands are TupleType
+    auto lhsTT = dyn_cast<TupleType>(op.getLhs().getType());
+    auto rhsTT = dyn_cast<TupleType>(op.getRhs().getType());
+    if (!lhsTT || !rhsTT)
+      return rewriter.notifyMatchFailure(op, "operands are not TupleType");
+
+    Location loc = op.getLoc();
+    SmallVector<Value, 8> elems;
+    elems.reserve(lhsTT.size() + rhsTT.size());
+
+    // emit gets for lhs elements
+    for (unsigned i = 0, e = lhsTT.size(); i < e; ++i) {
+      Type elemTy = lhsTT.getType(i);
+      elems.push_back(rewriter.create<GetOp>(
+        loc,
+        elemTy,
+        op.getLhs(),
+        rewriter.getIndexAttr(i)
+      ));
+    }
+
+    // emit gets for rhs elements
+    for (unsigned i = 0, e = rhsTT.size(); i < e; ++i) {
+      Type elemTy = rhsTT.getType(i);
+      elems.push_back(rewriter.create<GetOp>(
+        loc,
+        elemTy,
+        op.getRhs(),
+        rewriter.getIndexAttr(i)
+      ));
+    }
+
+    // rebuild as a single tuple.make
+    rewriter.replaceOpWithNewOp<MakeOp>(op, elems);
+    return success();
+  }
+};
+
 // rewrites a tuple.cmp with eq/ne, lhs, rhs, and claims operands
 // into a tuple.foldl op
 struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
@@ -430,6 +474,7 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
 
   patterns.add<
     AllOpLowering,
+    CatOpLowering,
     CmpOpMonoSynthesizeClaims,
     CmpOpPartialEqLowering,
     CmpOpPartialOrdLowering

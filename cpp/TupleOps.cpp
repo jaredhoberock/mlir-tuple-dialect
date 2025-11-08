@@ -131,6 +131,79 @@ LogicalResult AppendOp::verify() {
   return emitError() << "unsupported type for input tuple: '" << inputTy << "'";
 }
 
+LogicalResult CatOp::verify() {
+  Type lhsTy = getLhs().getType();
+  Type rhsTy = getRhs().getType();
+  Type resTy = getResult().getType();
+
+  if (!isTupleLike(lhsTy) || !isTupleLike(rhsTy))
+    return emitOpError() << "operands must be TupleLike, got "
+                         << lhsTy << " and " << rhsTy;
+
+  // result must be TupleLike
+  if (!isTupleLike(resTy))
+    return emitOpError() << "result must be TupleLike, got "
+                         << resTy;
+
+  // if either operand is polymorphic, result must be polymorphic
+  if (trait::isPolymorphicType(lhsTy) || trait::isPolymorphicType(rhsTy)) {
+    if (!isa<PolyType>(resTy))
+      return emitOpError() << "result must be !tuple.poly, got " << resTy;
+    return success();
+  }
+
+  // concrete case
+  auto lhsTT = dyn_cast<TupleType>(lhsTy);
+  auto rhsTT = dyn_cast<TupleType>(rhsTy);
+  auto resTT = dyn_cast<TupleType>(resTy);
+
+  if (!lhsTT || !rhsTT || !resTT)
+    return emitOpError() << "expected concrete operands and result tuple types, got "
+                         << lhsTy << ", " << rhsTy << " -> " << resTy;
+
+  // compute expected concatenation
+  SmallVector<Type, 8> elems;
+  elems.reserve(lhsTT.size() + rhsTT.size());
+  elems.append(lhsTT.begin(), lhsTT.end());
+  elems.append(rhsTT.begin(), rhsTT.end());
+  TupleType expected = TupleType::get(getContext(), elems);
+
+  if (resTT != expected)
+    return emitOpError() << "result type must be concatenation of operand element types; "
+                         << "expected " << expected << ", got " << resTT;
+
+  return success();
+}
+
+FailureOr<Type> CatOp::inferResultType(Type lhsTy, Type rhsTy, llvm::function_ref<InFlightDiagnostic()> errFn) {
+  if (!isTupleLike(lhsTy) || !isTupleLike(rhsTy)) {
+    if (errFn) errFn() << "operands must be TupleLike";
+    return failure();
+  }
+
+  MLIRContext *ctx = lhsTy.getContext();
+
+  // poly case -> fresh poly result
+  if (trait::isPolymorphicType(lhsTy) || trait::isPolymorphicType(rhsTy)) {
+    return PolyType::getUnique(ctx);
+  }
+
+  // concrete TupleType case: concatenate element types
+  auto lhs = dyn_cast<TupleType>(lhsTy);
+  auto rhs = dyn_cast<TupleType>(rhsTy);
+  if (!lhs || !rhs) {
+    if (errFn) errFn() << "operands must be TupleTypes";
+    return failure();
+  }
+
+  SmallVector<Type> elems;
+  elems.reserve(lhs.size() + rhs.size());
+  elems.append(lhs.begin(), lhs.end());
+  elems.append(rhs.begin(), rhs.end());
+
+  return TupleType::get(ctx, elems);
+}
+
 LogicalResult MakeOp::verify() {
   auto tupleTy = dyn_cast<TupleType>(getResult().getType());
   if (!tupleTy)

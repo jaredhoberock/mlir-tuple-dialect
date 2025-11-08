@@ -84,6 +84,33 @@ def AppendOp : TupleOp<"append", [Pure]> {
   let hasVerifier = 1;
 }
 
+def CatOp : TupleOp<"cat", [Pure]> {
+  let summary = "Concatenate two tuples (binary cat)";
+  let description = [{
+    Produces a tuple whose elements are the elements of `lhs` followed by the
+    elements of `rhs`.
+  }];
+
+  let arguments = (ins TupleLike:$lhs, TupleLike:$rhs);
+  let results   = (outs TupleLike:$result);
+
+  let assemblyFormat = "$lhs `,` $rhs `:` type($lhs) `,` type($rhs) `->` type($result) attr-dict";
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    static FailureOr<Type> inferResultType(Type lhsTy, Type rhsTy, llvm::function_ref<InFlightDiagnostic()> errFn = nullptr);
+  }];
+
+  let builders = [
+    // infers the result type
+    OpBuilder<(ins "Value":$lhs, "Value":$rhs), [{
+      auto maybeResTy = CatOp::inferResultType(lhs.getType(), rhs.getType());
+      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
+      build($_builder, $_state, resTy, lhs, rhs);
+    }]>
+  ];
+}
+
 def CmpOp : TupleOp<"cmp", [
   DeclareOpInterfaceMethods<SymbolUserOpInterface>
 ]> {
