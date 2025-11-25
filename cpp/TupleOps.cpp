@@ -544,6 +544,264 @@ FailureOr<mlir::trait::TraitOp> CmpOp::getTrait(llvm::function_ref<InFlightDiagn
 
 
 //===----------------------------------------------------------------------===//
+// FlattenOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult FlattenOp::verify() {
+  Type inputTy = getInput().getType();
+  Type resultTy = getResult().getType();
+
+  // both input and result must be TupleLike
+  if (!isTupleLike(inputTy))
+    return emitOpError() << "input must be TupleLike, got " << inputTy;
+
+  if (!isTupleLike(resultTy))
+    return emitOpError() << "result must be TupleLike, got " << resultTy;
+
+  // if the input isn't a concrete TupleType, we're in the polymorphic case
+  // (e.g., !tuple.poly). in that case, we just require both sides to be
+  // polymorphic TupleLike and additionally require that the two polys differ.
+  auto inputTupleTy = dyn_cast<TupleType>(inputTy);
+  if (!inputTupleTy) {
+    auto inPoly = dyn_cast<PolyType>(inputTy);
+    auto outPoly = dyn_cast<PolyType>(resultTy);
+
+    if (!inPoly)
+      return emitOpError()
+             << "non-concrete TupleLike input must be '!tuple.poly', got "
+             << inputTy;
+
+    if (!outPoly)
+      return emitOpError()
+             << "result must be '!tuple.poly', got "
+             << resultTy;
+
+    // flatten is (potentially) shape-changing; require distinct poly types
+    if (inPoly == outPoly)
+      return emitOpError()
+             << "input and result polys must be distinct; "
+             << "flatten may change tuple shape";
+
+    return success();
+  }
+
+  // concrete input tuple: each element must be TupleLike
+  SmallVector<Type, 8> flattenedElems;
+  bool allConcrete = true;
+
+  for (Type elemTy : inputTupleTy.getTypes()) {
+    if (!isTupleLike(elemTy))
+      return emitOpError()
+             << "all elements of input tuple must be TupleLike, got "
+             << elemTy;
+
+    // if the element is a concrete TupleType, concatenate its elements
+    if (auto inner = dyn_cast<TupleType>(elemTy)) {
+      flattenedElems.append(inner.begin(), inner.end());
+      continue;
+    }
+
+    // otherwise, it's some polymorphic TupleLike; we can no
+    // longer compute a concrete concatenation
+    allConcrete = false;
+  }
+
+  // if every element was a concrete TupleType, we know the exact flattened type
+  if (allConcrete) {
+    MLIRContext *ctx = getContext();
+    Type expected = TupleType::get(ctx, flattenedElems);
+    if (resultTy != expected)
+      return emitOpError()
+             << "result type must be concatenation of inner tuples; expected "
+             << expected << ", got " << resultTy;
+    return success();
+  }
+
+  // at least one element was polymorphic; require a polymorphic result too
+  if (!isa<PolyType>(resultTy))
+    return emitOpError()
+           << "result type must be '!tuple.poly' when any input tuple element is a "
+           << "polymorphic TupleLike; got " << resultTy;
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
+// FlatMapOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult FlatMapOp::verify() {
+  // body must exist, have exactly 1 arg, and end with tuple.yield
+  Block &body = getBody().front();
+  unsigned numExpectedArgs = 1;
+  if (body.getNumArguments() != numExpectedArgs)
+    return emitOpError() << "body block must have exactly one argument, got "
+                         << body.getNumArguments();
+
+  if (body.empty())
+    return emitOpError("body block cannot be empty");
+
+  if (!isa<YieldOp>(body.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << body.back().getName();
+
+  // input, yield, & result must all be tuple-like
+  Type inputTy = getInput().getType();
+  if (!isTupleLike(inputTy))
+    return emitOpError() << "input must be TupleLike, got " << inputTy;
+
+  Type yieldTy = bodyYield().getResult().getType();
+  if (!isTupleLike(yieldTy))
+    return emitOpError() << "body must yield a TupleLike type, got " << yieldTy;
+
+  Type resultTy = getResult().getType();
+  if (!isTupleLike(resultTy))
+    return emitOpError() << "result must be TupleLike, got " << yieldTy;
+
+  // if the input is polymorphic, we don't know the arity statically,
+  // so the only sensible result type is !tuple.poly
+  if (!isa<TupleType>(inputTy)) {
+    if (!isa<PolyType>(resultTy))
+      return emitOpError() << "result must be '!tuple.poly' when input is polymorphic; got "
+                           << resultTy;
+  }
+
+  return success();
+}
+
+YieldOp FlatMapOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+FunctionType FlatMapOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+FunctionType FlatMapOp::getFunctionTypeForIteration(unsigned int i) {
+  auto inputTupleType = getInputTupleTypeWithKnownArity();
+  if (failed(inputTupleType))
+    llvm_unreachable("FlatMapOp::getFunctionTypeForIteration: input must be TupleType");
+
+  return FunctionType::get(
+      getContext(),
+      {inputTupleType->getType(i)},
+      bodyYield().getOperand().getType()
+  );
+}
+
+FailureOr<DenseMap<Type,Type>> FlatMapOp::buildSubstitutionForIteration(
+    unsigned int i,
+    function_ref<InFlightDiagnostic()> errFn) {
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module) {
+    if (errFn) errFn() << "not in a module";
+    return failure();
+  }
+  auto bodyTy = getBodyFunctionType();
+  auto iterationTy = getFunctionTypeForIteration(i);
+  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
+}
+
+LogicalResult FlatMapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  // must be inside a module
+  auto moduleOp = getOperation()->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return emitOpError("not contained in a module");
+
+  if (auto N = getArity())
+    return verifySymbolUsesWithKnownArity(moduleOp, *N);
+  return verifySymbolUsesWithUnknownArity(moduleOp);
+}
+
+LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity) {
+  auto err = [&]{ return emitOpError(); };
+
+  // treat the body as a function: (Eformal) -> Yformal
+  FunctionType calleeTy = getBodyFunctionType();
+  Type Yformal = calleeTy.getResult(0);
+
+  SmallVector<Type,8> concatenatedElems;
+  bool allConcrete = true;
+
+  // for each tuple element i, the "caller" is: (Eactual) -> Yformal
+  for (unsigned i = 0; i < arity; ++i) {
+    FunctionType callerTy = getFunctionTypeForIteration(i);
+
+    // unify body formal with actual for this iteration
+    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    if (failed(subst))
+      return failure();
+
+    // instantiate the yield type for this iteration
+    Type Yactual = trait::applySubstitutionToFixedPoint(*subst, Yformal);
+
+    // each iteration must yield something TupleLike
+    if (!isTupleLike(Yactual))
+      return err() << "body yield for element " << i
+                   << " must be TupleLike, got " << Yactual;
+
+    // try to refine to a concrete TupleType
+    if (auto tt = dyn_cast<TupleType>(Yactual)) {
+      concatenatedElems.append(tt.begin(), tt.end());
+    } else {
+      // we hit a polymorphic tuple::PolyType; we can
+      // no longer compute a concrete concatenation.
+      allConcrete = false;
+    }
+  }
+
+  Type resultTy = getResult().getType();
+
+  if (allConcrete) {
+    // we know every yield's arity -> result must be the exact concatentation
+    Type expectedResTy = TupleType::get(getContext(), concatenatedElems);
+    if (resultTy != expectedResTy)
+      return err() << "result type must be concatenation of yielded tuples; "
+                   << "expected " << expectedResTy << ", got " << resultTy;
+    return success();
+  }
+
+  // at least one yield is polymorphic; we can't know total arity,
+  // so the only sensible result type is !tuple.poly
+  if (!isa<PolyType>(resultTy))
+    return err() << "result type must be '!tuple.poly' when any yielded tuple "
+                 << "is polymorphic; got " << resultTy;
+
+  return success();
+}
+
+LogicalResult FlatMapOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
+  // with unknown arity, the input is polymorphic (!tuple.poly). we require the
+  // body to be purely polymorphic so it can instantiate later for any arity.
+  FunctionType calleeTy = getBodyFunctionType();
+  Type Eformal = calleeTy.getInput(0);
+  Type Yformal = calleeTy.getResult(0);
+
+  if (!trait::isPurelyPolymorphicType(Eformal))
+    return emitOpError()
+           << "body argument must be purely polymorphic (all leaves e.g. '!trait.poly'); got "
+           << Eformal;
+
+  if (!isTupleLike(Yformal))
+    return emitOpError()
+           << "body yield/result must be TupleLike; got "
+           << Yformal;
+
+  if (!trait::isPurelyPolymorphicType(Yformal))
+    return emitOpError()
+           << "body yield/result must be purely polymorphic; got "
+           << Yformal;
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // FoldlOp
 //===----------------------------------------------------------------------===//
 
@@ -884,16 +1142,19 @@ FunctionType MapOp::getFunctionTypeForIteration(unsigned elemIdx) {
   return FunctionType::get(getContext(), argTys, resultElemTy);
 }
 
-llvm::DenseMap<Type,Type> MapOp::buildSubstitutionForIteration(unsigned int i) {
+FailureOr<DenseMap<Type,Type>> MapOp::buildSubstitutionForIteration(
+    unsigned int i,
+    function_ref<InFlightDiagnostic()> errFn) {
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module) {
+    if (errFn) errFn() << "not in a module";
+    return failure();
+  }
+
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i);
 
-  auto module = getOperation()->getParentOfType<ModuleOp>();
-  auto subst = trait::buildSpecializationSubstitution(bodyTy, iterationTy, module);
-  if (failed(subst)) {
-    llvm_unreachable("MapOp::buildSubstitutionForIteration: unification failed");
-  }
-  return *subst;
+  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
 }
 
 }

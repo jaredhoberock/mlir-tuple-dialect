@@ -43,7 +43,7 @@ def AllOp : TupleOp<"all", [
     FunctionType getBodyFunctionType();
     FunctionType getFunctionTypeForIteration(unsigned int i);
 
-    // this method succeeds only when the input tuple is a concrete TupleTYpe
+    // this method succeeds only when the input tuple is a concrete TupleType
     // element types of the input tuple are still allowed to be polymorphic
     FailureOr<TupleType> getInputTupleTypeWithKnownArity() {
       if (auto tt = dyn_cast<TupleType>(getInput().getType())) {
@@ -174,6 +174,77 @@ def CmpOp : TupleOp<"cmp", [
 
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
+}
+
+def FlattenOp : TupleOp<"flatten", [Pure]> {
+  let summary = "One-level flattening of a tuple of tuples";
+  let description = [{
+    `tuple.flatten` performs a shallow flatten of a single tuple of tuples.
+    The result is the concatenation of all the outer tuple elements.
+  }];
+
+  let arguments = (ins TupleLike:$input);
+  let results = (outs TupleLike:$result);
+  
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+}
+
+// XXX TODO tuple.flat_map should probably be variadic like tuple.map
+def FlatMapOp : TupleOp<"flat_map", [
+  AutomaticAllocationScope,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  OpAsmOpInterface
+]> {
+  let summary = "Map each element to a tuple and concatenate the results";
+  let description = [{
+    `tuple.flat_map` executes a region once per element of the input tuple.
+    The region takes the current element as its single block argument and must
+    yield a tuple-like value. The result is the concatenation of all yielded
+    tuples in left-to-right order. For `tuple<>`, the result is `tuple<>`.
+  }];
+
+  let arguments = (ins TupleLike:$input);
+  let results = (outs TupleLike:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result) $body";
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    YieldOp bodyYield();
+
+    FunctionType getBodyFunctionType();
+    FunctionType getFunctionTypeForIteration(unsigned int i);
+
+    // this method succeeds only when the input tuple is a concrete TupleType
+    // element types of the input tuple are still allowed to be polymorphic
+    FailureOr<TupleType> getInputTupleTypeWithKnownArity() {
+      if (auto tt = dyn_cast<TupleType>(getInput().getType()))
+        return success(tt);
+      return failure();
+    }
+
+    std::optional<unsigned> getArity() {
+      auto maybeTupleOfKnownArity = getInputTupleTypeWithKnownArity();
+      if (succeeded(maybeTupleOfKnownArity)) return maybeTupleOfKnownArity->size();
+      return std::nullopt;
+    }
+
+    LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
+    LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
+
+    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+        unsigned int i,
+        function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Allow the dialect prefix to be omitted.
+    static StringRef getDefaultDialect() { return "tuple"; }
+  }];
 }
 
 def FoldlOp : TupleOp<"foldl", [
@@ -327,7 +398,9 @@ def MapOp : TupleOp<"map", [
     LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
     LogicalResult verifySymbolUsesWithUnknownArity();
 
-    llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i);
+    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+        unsigned int i,
+        function_ref<InFlightDiagnostic()> errFn = nullptr);
 
     // this method succeeds only when each input tuple is a concrete TupleType
     // the element types of each input tuple are still allowed to be polymorphic
@@ -373,7 +446,7 @@ def MapOp : TupleOp<"map", [
 }
 
 def YieldOp : TupleOp<"yield", [
-  ParentOneOf<["AllOp","FoldlOp","MapOp"]>,
+  ParentOneOf<["AllOp","FlatMapOp","FoldlOp","MapOp"]>,
   Pure,
   ReturnLike,
   Terminator

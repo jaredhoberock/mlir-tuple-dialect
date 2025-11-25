@@ -9,6 +9,35 @@
 
 namespace mlir::tuple {
 
+/// This file implements the tuple dialect's "monomorphization" pipeline.
+///
+/// Conceptually there are three groups of patterns:
+///
+///  1. populateConvertTupleToTraitPatterns
+///     - These patterns *bridge* between tuple ops and the trait dialect.
+///       They introduce helper traits (e.g. mapper traits) and rewrite
+///       tuple ops into forms that are trait-aware (e.g. synthesizing
+///       claim tuples, lowering `tuple.all` to `tuple.foldl`, etc.).
+///       At this stage IR may still be polymorphic.
+///
+///  2. populateInstantiateMonomorphsPatterns
+///     - These patterns fire once tuple shapes / element types are known.
+///       They inline higher-order tuple ops (`tuple.map`, `tuple.flat_map`,
+///       `tuple.foldl`, ...) by iterating over tuple elements and
+///       instantiating their polymorphic regions. The result is a
+///       first-order, monomorphic tuple IR expressed in terms of
+///       `tuple.get` / `tuple.make` and ordinary ops.
+///
+///  3. populateEraseClaimsPatterns
+///     - These patterns cooperate with a TypeConverter that erases
+///       `!trait.claim` types. They rewrite `tuple.get` / `tuple.make` so
+///       that erased claim elements disappear from tuple types and from
+///       the IR, adjusting indices and operands as needed.
+///
+/// The three `populate*` functions below each register the patterns that
+/// belong to their respective phase.
+
+
 //===----------------------------------------------------------------------===//
 // populateConvertTupleToTraitPatterns
 //===----------------------------------------------------------------------===//
@@ -465,13 +494,32 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
   }
 };
 
+/// Register patterns that *connect* the tuple dialect to the trait dialect.
+///
+/// This group does **not** instantiate polymorphic regions. Instead, it:
+///   - synthesizes helper traits used by tuple algorithms
+///     (e.g. `@tuple.MapPartialEq`),
+///   - rewrites tuple operations into trait-aware forms
+///     (e.g. `tuple.cmp` gains an explicit claims tuple),
+///   - expresses some tuple ops in terms of others when that is part of
+///     the trait-based lowering story (e.g. `tuple.all` -> `tuple.foldl`,
+///     `tuple.cat` -> `tuple.make`).
+///
+/// These patterns are intended to run while IR may still be polymorphic;
+/// they prepare the IR so that later phases can instantiate and erase
+/// traits cleanly.
 void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
-  // introduce the @tuple.MapPartialEq trait
+  // introduce the @tuple.MapPartialEq and @tuple.MapPartialOrd traits
+  // that drive tuple-level implementations of these traits
   patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialEq");
-
-  // introduce the @tuple.MapPartialOrd trait
   patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialOrd");
 
+  // bridge tuple ops to the trait world and tuple HOFs:
+  //  - CmpOpMonoSynthesizeClaims: synthesize explicit claim tuples
+  //  - CmpOpPartialEqLowering / CmpOpPartialOrdLowering: rewrite
+  //    `tuple.cmp` into a trait-method-driven `tuple.foldl`
+  //  - AllOpLowering: rewrite `tuple.all` into `tuple.foldl`
+  //  - CatOpLowering: rewrite `tuple.cat` into a single `tuple.make`
   patterns.add<
     AllOpLowering,
     CatOpLowering,
@@ -543,6 +591,138 @@ struct FoldlOpInstantiation : public OpRewritePattern<FoldlOp> {
   }
 };
 
+
+struct FlattenOpInstantiation : public OpRewritePattern<FlattenOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FlattenOp op,
+                                PatternRewriter& rewriter) const override {
+    // only lower once both input and result and concrete TupleType
+    auto inTT = dyn_cast<TupleType>(op.getInput().getType());
+    auto outTT = dyn_cast<TupleType>(op.getResult().getType());
+    if (!inTT || !outTT)
+      return rewriter.notifyMatchFailure(
+          op, "input/result are not concrete TupleType");
+
+    Location loc = op.getLoc();
+    Value input = op.getInput();
+
+    SmallVector<Value, 8> flatElems;
+    flatElems.reserve(outTT.size());
+
+    // for each outer element, which must itself be a concrete TupleType,
+    // grab the inner tuple and then each of its elements
+    for (auto [outerIdx, outerElemTy] : llvm::enumerate(inTT.getTypes())) {
+      auto innerTT = dyn_cast<TupleType>(outerElemTy);
+      if (!innerTT)
+        return rewriter.notifyMatchFailure(
+            op, "element of input tuple is not a concrete TupleType");
+
+      // %inner = tuple.get %input, outerIdx
+      Value inner = rewriter.create<GetOp>(loc, input, outerIdx);
+
+      // extract each element of the inner tuple and append to flatElems
+      for (unsigned j = 0; j < innerTT.size(); ++j) {
+        flatElems.push_back(rewriter.create<GetOp>(loc, inner, j));
+      }
+    }
+
+    // sanity: arity should match what the verifier computed
+    if (flatElems.size() != outTT.size())
+      return rewriter.notifyMatchFailure(
+          op, "flattened arity does not match result type");
+
+    rewriter.replaceOpWithNewOp<MakeOp>(op, outTT, flatElems);
+    return success();
+  }
+};
+
+
+// instantiate one *elemental* iteration of a higher-order tuple op (map or flat_map).
+// - asks the op for the substitution for iteration `i`
+// - instantiates the body into a temporary region
+// - inlines the instantiated block before `op`, binding `args` to the block args
+// - returns the Value yielded by that iteration
+template<typename OpT>
+FailureOr<Value> instantiateElementalTupleOpIteration(
+    PatternRewriter &rewriter,
+    OpT op,
+    unsigned i,
+    ArrayRef<Value> args) {
+
+  // guard the insertion point
+  PatternRewriter::InsertionGuard guard(rewriter);
+
+  // get the substitution for iteration i
+  auto subst = op.buildSubstitutionForIteration(i);
+  if (failed(subst)) return failure();
+  
+  Region &body = op.getBody();
+
+  // instantiate body into temporary region
+  Region bodyInstance;
+  trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, *subst);
+
+  Block *block = &bodyInstance.front();
+  auto yieldOp = cast<YieldOp>(block->getTerminator());
+
+  // inline instantiated block, binding args
+  rewriter.inlineBlockBefore(block, op, args);
+
+  // grab yielded value
+  Value yielded = yieldOp.getOperand();
+
+  // erase old yield op
+  rewriter.eraseOp(yieldOp);
+
+  return yielded;
+}
+
+struct FlatMapOpInstantiation : public OpRewritePattern<FlatMapOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FlatMapOp op,
+                                PatternRewriter& rewriter) const override {
+    // we can't lower without a known arity
+    auto inputTupleTy = op.getInputTupleTypeWithKnownArity();
+    if (failed(inputTupleTy))
+      return rewriter.notifyMatchFailure(op, "input arity is unknown");
+
+    unsigned arity = inputTupleTy->size();
+
+    auto resultTupleTy = dyn_cast<TupleType>(op.getResult().getType());
+    if (!resultTupleTy)
+      return rewriter.notifyMatchFailure(op, "result is not a TupleType");
+
+    Location loc = op.getLoc();
+
+    SmallVector<Value, 8> resultElems;
+    resultElems.reserve(resultTupleTy.size());
+
+    for (unsigned i = 0; i < arity; ++i) {
+      // argument for this iteration is the ith element of the input tuple
+      SmallVector<Value,1> args;
+      args.push_back(rewriter.create<GetOp>(loc, op.getInput(), i));
+
+      // instantiate and inline one iteration of the body
+      auto yielded = instantiateElementalTupleOpIteration(rewriter, op, i, args);
+      if (failed(yielded))
+        return rewriter.notifyMatchFailure(op, "instantiateElementalTupleOpIteration failed");
+
+      auto yieldedTupleTy = dyn_cast<TupleType>(yielded->getType());
+      if (!yieldedTupleTy)
+        return rewriter.notifyMatchFailure(op, "instantiated body did not yield a TupleType");
+
+      // flatten the yielded tuple into resultElems
+      for (unsigned j = 0, sz = yieldedTupleTy.size(); j < sz; ++j)
+        resultElems.push_back(rewriter.create<GetOp>(loc, *yielded, j));
+    }
+    
+    rewriter.replaceOpWithNewOp<MakeOp>(op, resultTupleTy, resultElems);
+    return success();
+  }
+};
+
 struct MapOpInstantiation : public OpRewritePattern<MapOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -559,38 +739,25 @@ struct MapOpInstantiation : public OpRewritePattern<MapOp> {
     unsigned arity = *maybeArity;
 
     Location loc = op.getLoc();
-    Region &body = op.getBody();
 
     SmallVector<Value> resultElems;
     resultElems.reserve(arity);
 
     for (unsigned i = 0; i < arity; ++i) {
-      // collect the ith element from each input tuple to pass to the block below
+      // collect the ith element from each input tuple to pass to the block
       SmallVector<Value> args;
       args.reserve(op.getInputs().size());
       for (Value tup : op.getInputs()) {
         args.push_back(rewriter.create<GetOp>(loc, tup, i));
       }
 
-      // build the type substitution for this iteration
-      auto subst = op.buildSubstitutionForIteration(i);
-
-      // instantiate the body into a temporary Region
-      Region bodyInstance;
-      trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, subst);
-
-      // get the block to inline and its yield
-      Block* block = &bodyInstance.front();
-      auto yieldOp = cast<YieldOp>(block->getTerminator());
-
-      // inline the instantiated block before the map op, binding its arguments
-      rewriter.inlineBlockBefore(block, op, args);
-
+      // instantiate and inline one iteration of the body
+      auto yielded = instantiateElementalTupleOpIteration(rewriter, op, i, args);
+      if (failed(yielded))
+        return rewriter.notifyMatchFailure(op, "instantiateElementalTupleOpIteration failed");
+      
       // the yielded value is the ith element of the result tuple
-      resultElems.push_back(yieldOp.getOperand());
-
-      // the original yield is now inlined; erase it
-      rewriter.eraseOp(yieldOp);
+      resultElems.push_back(*yielded);
     }
 
     // replace the map op with the assembled result tuple
@@ -599,22 +766,38 @@ struct MapOpInstantiation : public OpRewritePattern<MapOp> {
   }
 };
 
+
+/// Register patterns that *instantiate* tuple higher-order functions once
+/// their tuple shapes are known.
+///
+/// This phase assumes tuple inputs/results have become concrete `TupleType`s
+/// (and any necessary trait plumbing has already been introduced).
+/// It:
+///   - inlines `tuple.foldl` bodies element-by-element,
+///   - inlines `tuple.map` element-by-element,
+///   - inlines `tuple.flat_map` and flattens the per-element result tuples.
+///
+/// After this phase, there should be no remaining `tuple.map`,
+/// `tuple.flat_map`, or `tuple.foldl` in the IR, only `tuple.get`,
+/// `tuple.make`, and ordinary scalar / trait operations.
 void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
   // instantiating monomorphs may generate new tuple.cmp ops,
-  // so add their patterns to the set
+  // so include the trait-aware cmp lowerings here as well
   patterns.add<
     CmpOpPartialEqLowering,
     CmpOpPartialOrdLowering
   >(patterns.getContext());
 
-  // tuple.all lowers to tuple.foldl, so add its lowering
-  patterns.add<
-    AllOpLowering
-  >(patterns.getContext());
+  // tuple.all lowers to tuple.foldl; include that rewrite so that any
+  // remaining tuple.all is expressed in terms of tuple.foldl before we
+  // instantiate foldl bodies
+  patterns.add<AllOpLowering>(patterns.getContext());
 
-  // tuple.foldl and tuple.map lowerings instantiate polymorphic regions,
-  // so add their patterns to the set
+  // tuple.flatten, tuple.flat_map, tuple.foldl and tuple.map
+  // lowerings instantiate / specialize tuple structure.
   patterns.add<
+    FlattenOpInstantiation,
+    FlatMapOpInstantiation,
     FoldlOpInstantiation,
     MapOpInstantiation
   >(patterns.getContext());
@@ -721,8 +904,24 @@ struct EraseClaimsFromMakeOp : ConversionPattern {
   }
 };
 
+/// Register patterns that cooperate with a TypeConverter to *erase*
+/// `!trait.claim` types from tuples and the IR.
+///
+/// The provided TypeConverter is responsible for mapping:
+///   - `!trait.claim<...>` -> (0 pieces)
+///   - other types -> 1+ pieces
+///
+/// This pattern set:
+///   - updates `tuple.get` indices to account for elements that were
+///     expanded or erased under the type conversion,
+///   - rebuilds `tuple.make` with the converted operand lists and result
+///     types, dropping operands whose types erased to nothing.
+///
+/// After this phase, there should be no `!trait.claim` types remaining in
+/// tuple element types or in SSA value types.
 void populateEraseClaimsPatterns(TypeConverter& converter, RewritePatternSet& patterns) {
-  // add a type conversion that recursively applies the converter to TupleType
+  // teach the TypeConverter how to rewrite TupleType by recursively applying
+  // the element conversion (including erasing elements that convert to 0 pieces)
   converter.addConversion([&](TupleType tup) -> std::optional<Type> {
     SmallVector<Type,4> newElems;
     newElems.reserve(tup.size());
@@ -737,6 +936,11 @@ void populateEraseClaimsPatterns(TypeConverter& converter, RewritePatternSet& pa
     return TupleType::get(tup.getContext(), newElems);
   });
 
+  // rewrite tuple ops to respect the converted types:
+  // - GetOp: adjust indices and optionally erase tuple.get ops whose result type
+  //   erased to nothing
+  // - MakeOp: rebuild tuples from the converted operands and result type,
+  //   flattening multi-piece operands and dropping erased ones
   patterns.add<
     EraseClaimsFromGetOp,
     EraseClaimsFromMakeOp
