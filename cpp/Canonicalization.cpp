@@ -158,13 +158,62 @@ struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
   }
 };
 
+struct MakeOpCanonicalization : public OpRewritePattern<MakeOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(MakeOp op,
+                                PatternRewriter& rewriter) const override {
+    auto resultTy = dyn_cast<TupleType>(op.getResult().getType());
+    if (!resultTy)
+      return rewriter.notifyMatchFailure(op, "result is not a TupleType");
+
+    unsigned n = op.getNumOperands();
+    if (n == 0)
+      return rewriter.notifyMatchFailure(op, "no operands");
+
+    // match a tuple.make built from contiguous tuple.get from the same original tuple
+    Value origin;
+    SmallVector<unsigned, 4> indices;
+    indices.reserve(n);
+
+    for (unsigned i = 0; i < n; ++i) {
+      auto *def = op.getOperand(i).getDefiningOp();
+      auto get = dyn_cast_or_null<GetOp>(def);
+      if (!get)
+        return rewriter.notifyMatchFailure(op, "operand is not a tuple.get");
+
+      if (!origin)
+        origin = get.getTuple();
+      else if (origin != get.getTuple())
+        return rewriter.notifyMatchFailure(op, "operands come from different origins");
+
+      auto idx = get.getIndex().getSExtValue();
+      indices.push_back(idx);
+    }
+
+    // require contiguous 0..n-1
+    for (unsigned i = 0; i < n; ++i) {
+      if (indices[i] != i)
+        return rewriter.notifyMatchFailure(op, "indices are not 0..n-1 in order");
+    }
+
+    // original type must match result type.
+    if (origin.getType() != resultTy)
+      return rewriter.notifyMatchFailure(op, "original type does not match result type");
+
+    rewriter.replaceOp(op, origin);
+    return success();
+  }
+};
+
 void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
   patterns.add<
     AllOpCanonicalization,
     AppendOpCanonicalization,
     CatOpCanonicalization,
     CmpOpCanonicalization,
-    GetOpCanonicalization
+    GetOpCanonicalization,
+    MakeOpCanonicalization
   >(patterns.getContext());
 }
 

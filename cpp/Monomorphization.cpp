@@ -534,6 +534,33 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
 // populateInstantiateMonomorphsPatterns
 //===----------------------------------------------------------------------===//
 
+struct FlatMapOpLowering : public OpRewritePattern<FlatMapOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(FlatMapOp op,
+                                PatternRewriter& rewriter) const override {
+    auto mapResultTy = op.inferIntermediateMapType();
+    if (failed(mapResultTy))
+      return rewriter.notifyMatchFailure(op, "inferIntermediateMapType failed");
+
+    Location loc = op.getLoc();
+
+    // create tuple.map with the same body as the tuple.flat_map
+    auto mapOp = rewriter.create<MapOp>(loc, *mapResultTy, ValueRange{op.getInput()});
+    {
+      // inline the flat_map's body into the new map op
+      Region &oldBody = op.getBody();
+      Region &newBody = mapOp.getBody();
+      rewriter.inlineRegionBefore(oldBody, newBody, newBody.end());
+    }
+
+    // replace tuple.flat_map with tuple.flatten of the map result
+    Type flatResTy = op.getResult().getType();
+    rewriter.replaceOpWithNewOp<FlattenOp>(op, flatResTy, mapOp.getResult());
+    return success();
+  }
+};
+
 struct FoldlOpInstantiation : public OpRewritePattern<FoldlOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -678,51 +705,6 @@ FailureOr<Value> instantiateElementalTupleOpIteration(
   return yielded;
 }
 
-struct FlatMapOpInstantiation : public OpRewritePattern<FlatMapOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(FlatMapOp op,
-                                PatternRewriter& rewriter) const override {
-    // we can't lower without a known arity
-    auto inputTupleTy = op.getInputTupleTypeWithKnownArity();
-    if (failed(inputTupleTy))
-      return rewriter.notifyMatchFailure(op, "input arity is unknown");
-
-    unsigned arity = inputTupleTy->size();
-
-    auto resultTupleTy = dyn_cast<TupleType>(op.getResult().getType());
-    if (!resultTupleTy)
-      return rewriter.notifyMatchFailure(op, "result is not a TupleType");
-
-    Location loc = op.getLoc();
-
-    SmallVector<Value, 8> resultElems;
-    resultElems.reserve(resultTupleTy.size());
-
-    for (unsigned i = 0; i < arity; ++i) {
-      // argument for this iteration is the ith element of the input tuple
-      SmallVector<Value,1> args;
-      args.push_back(rewriter.create<GetOp>(loc, op.getInput(), i));
-
-      // instantiate and inline one iteration of the body
-      auto yielded = instantiateElementalTupleOpIteration(rewriter, op, i, args);
-      if (failed(yielded))
-        return rewriter.notifyMatchFailure(op, "instantiateElementalTupleOpIteration failed");
-
-      auto yieldedTupleTy = dyn_cast<TupleType>(yielded->getType());
-      if (!yieldedTupleTy)
-        return rewriter.notifyMatchFailure(op, "instantiated body did not yield a TupleType");
-
-      // flatten the yielded tuple into resultElems
-      for (unsigned j = 0, sz = yieldedTupleTy.size(); j < sz; ++j)
-        resultElems.push_back(rewriter.create<GetOp>(loc, *yielded, j));
-    }
-    
-    rewriter.replaceOpWithNewOp<MakeOp>(op, resultTupleTy, resultElems);
-    return success();
-  }
-};
-
 struct MapOpInstantiation : public OpRewritePattern<MapOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -788,16 +770,20 @@ void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
     CmpOpPartialOrdLowering
   >(patterns.getContext());
 
-  // tuple.all lowers to tuple.foldl; include that rewrite so that any
-  // remaining tuple.all is expressed in terms of tuple.foldl before we
-  // instantiate foldl bodies
-  patterns.add<AllOpLowering>(patterns.getContext());
+  // tuple.all and tuple.flat_map lower to tuple.fold & tuple.map;
+  // include those rewrites so that these are expanded to these before
+  // we instantiate foldl & map bodies
+  patterns.add<
+    AllOpLowering,
+    FlatMapOpLowering
+  >(patterns.getContext());
 
-  // tuple.flatten, tuple.flat_map, tuple.foldl and tuple.map
+  patterns.add<FlatMapOpLowering>(patterns.getContext());
+
+  // tuple.flatten, tuple.foldl and tuple.map
   // lowerings instantiate / specialize tuple structure.
   patterns.add<
     FlattenOpInstantiation,
-    FlatMapOpInstantiation,
     FoldlOpInstantiation,
     MapOpInstantiation
   >(patterns.getContext());

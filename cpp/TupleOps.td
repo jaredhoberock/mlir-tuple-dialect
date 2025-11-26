@@ -7,6 +7,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
+include "TraitOpInterfaces.td"
 include "Tuple.td"
 include "TupleEnums.td"
 
@@ -176,7 +177,10 @@ def CmpOp : TupleOp<"cmp", [
   let hasVerifier = 1;
 }
 
-def FlattenOp : TupleOp<"flatten", [Pure]> {
+def FlattenOp : TupleOp<"flatten", [
+  Pure,
+  ResultTypeSpecializationOpInterface,
+]> {
   let summary = "One-level flattening of a tuple of tuples";
   let description = [{
     `tuple.flatten` performs a shallow flatten of a single tuple of tuples.
@@ -188,6 +192,13 @@ def FlattenOp : TupleOp<"flatten", [Pure]> {
   
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
   let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    FailureOr<TupleType> inferKnownArityResultType(function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    // for ResultTypeSpecializationOpInterface
+    FailureOr<SmallVector<Type>> specializeResultTypes();
+  }];
 }
 
 // XXX TODO tuple.flat_map should probably be variadic like tuple.map
@@ -237,6 +248,9 @@ def FlatMapOp : TupleOp<"flat_map", [
     FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
         unsigned int i,
         function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    // used by FlatMapOpLowering to compute the result type of the intermediate tuple.map op
+    FailureOr<Type> inferIntermediateMapType(function_ref<InFlightDiagnostic()> errFn = nullptr);
 
     //===------------------------------------------------------------------===//
     // OpAsmOpInterface Methods
@@ -344,7 +358,10 @@ def GetOp : TupleOp<"get", [Pure]> {
   ];
 }
 
-def MakeOp : TupleOp<"make", [Pure]> {
+def MakeOp : TupleOp<"make", [
+  Pure,
+  ResultTypeSpecializationOpInterface
+]> {
   let summary = "Construct a tuple value";
   let description = [{
     Packs operands into a `tuple<...>`.
@@ -357,6 +374,11 @@ def MakeOp : TupleOp<"make", [Pure]> {
   let assemblyFormat = "attr-dict (`(` $elements^ `:` type($elements) `)`)? `:` type($result)";
 
   let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    // for ResultTypeSpecializationOpInterface
+    FailureOr<SmallVector<Type>> specializeResultTypes();
+  }];
 
   let builders = [
     OpBuilder<(ins "ValueRange":$elements), [{

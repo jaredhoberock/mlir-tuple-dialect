@@ -208,9 +208,25 @@ LogicalResult MakeOp::verify() {
   auto tupleTy = dyn_cast<TupleType>(getResult().getType());
   if (!tupleTy)
     return emitOpError("result must be a tuple type");
+
   if (tupleTy.size() != getNumOperands())
     return emitOpError("operand/result arity mismatch");
+
+  for (auto [i, operand] : llvm::enumerate(getOperands())) {
+    Type elemTy = tupleTy.getType(i);
+    if (elemTy != operand.getType())
+      return emitOpError()
+             << "operand " << i << " has type " << operand.getType()
+             << ", but result element is " << elemTy;
+  }
+
   return success();
+}
+
+FailureOr<SmallVector<Type>> MakeOp::specializeResultTypes() {
+  auto tupleTy = TupleType::get(getContext(), getOperandTypes());
+  SmallVector<Type> result{tupleTy};
+  return result;
 }
 
 LogicalResult GetOp::verify() {
@@ -547,89 +563,155 @@ FailureOr<mlir::trait::TraitOp> CmpOp::getTrait(llvm::function_ref<InFlightDiagn
 // FlattenOp
 //===----------------------------------------------------------------------===//
 
-LogicalResult FlattenOp::verify() {
+FailureOr<TupleType> FlattenOp::inferKnownArityResultType(function_ref<InFlightDiagnostic()> errFn) {
   Type inputTy = getInput().getType();
+  auto inputTupleTy = dyn_cast<TupleType>(inputTy);
+
+  // This helper only applies when the *outer* tuple has known arity.
+  if (!inputTupleTy) {
+    if (errFn)
+      errFn() << "input is not a concrete tuple type: " << inputTy;
+    return failure();
+  }
+
+  SmallVector<Type, 8> flattenedElems;
+
+  for (Type elemTy : inputTupleTy.getTypes()) {
+    // Elements must at least be TupleLike.
+    if (!isTupleLike(elemTy)) {
+      if (errFn)
+        errFn() << "all elements of input tuple must be TupleLike, got "
+                << elemTy;
+      return failure();
+    }
+
+    // To infer a *known-arity* result type, each element must itself be a
+    // concrete TupleType. If an element is polymorphic TupleLike, overall
+    // arity is not known.
+    if (auto inner = dyn_cast<TupleType>(elemTy)) {
+      flattenedElems.append(inner.begin(), inner.end());
+    } else {
+      // Some element is polymorphic TupleLike (e.g. !tuple.poly), so we
+      // can't infer a fully known-arity result type.
+      return failure();
+    }
+  }
+
+  return TupleType::get(getContext(), flattenedElems);
+}
+
+LogicalResult FlattenOp::verify() {
+  Type inputTy  = getInput().getType();
   Type resultTy = getResult().getType();
 
   // both input and result must be TupleLike
   if (!isTupleLike(inputTy))
     return emitOpError() << "input must be TupleLike, got " << inputTy;
-
   if (!isTupleLike(resultTy))
     return emitOpError() << "result must be TupleLike, got " << resultTy;
 
-  // if the input isn't a concrete TupleType, we're in the polymorphic case
-  // (e.g., !tuple.poly). in that case, we just require both sides to be
-  // polymorphic TupleLike and additionally require that the two polys differ.
-  auto inputTupleTy = dyn_cast<TupleType>(inputTy);
-  if (!inputTupleTy) {
-    auto inPoly = dyn_cast<PolyType>(inputTy);
-    auto outPoly = dyn_cast<PolyType>(resultTy);
-
-    if (!inPoly)
+  // case 1: input is polymorphic (!tuple.poly<X>)
+  auto inputPoly = dyn_cast<PolyType>(inputTy);
+  if (inputPoly) {
+    // result must also be polymorphic
+    auto resultPoly = dyn_cast<PolyType>(resultTy);
+    if (!resultPoly)
       return emitOpError()
-             << "non-concrete TupleLike input must be '!tuple.poly', got "
-             << inputTy;
-
-    if (!outPoly)
-      return emitOpError()
-             << "result must be '!tuple.poly', got "
+             << "result must be '!tuple.poly' when input is polymorphic; got "
              << resultTy;
 
-    // flatten is (potentially) shape-changing; require distinct poly types
-    if (inPoly == outPoly)
+    // require that flatten actually changes shape, so polys must differ
+    if (inputPoly == resultPoly)
       return emitOpError()
-             << "input and result polys must be distinct; "
-             << "flatten may change tuple shape";
+             << "input and result polys must be distinct since flatten "
+                "may change tuple shape";
 
     return success();
   }
 
-  // concrete input tuple: each element must be TupleLike
-  SmallVector<Type, 8> flattenedElems;
-  bool allConcrete = true;
+  // from here on, input must be a concrete TupleType
+  auto inputTupleTy = dyn_cast<TupleType>(inputTy);
+  if (!inputTupleTy)
+    return emitOpError()
+           << "non-polymorphic input must be a concrete tuple type, got "
+           << inputTy;
 
-  for (Type elemTy : inputTupleTy.getTypes()) {
-    if (!isTupleLike(elemTy))
-      return emitOpError()
-             << "all elements of input tuple must be TupleLike, got "
-             << elemTy;
+  // try to compute known-arity result type if possible
+  auto inferred = inferKnownArityResultType([&]() { return emitOpError(); });
+  if (succeeded(inferred)) {
+    Type expected = *inferred;
 
-    // if the element is a concrete TupleType, concatenate its elements
-    if (auto inner = dyn_cast<TupleType>(elemTy)) {
-      flattenedElems.append(inner.begin(), inner.end());
-      continue;
-    }
-
-    // otherwise, it's some polymorphic TupleLike; we can no
-    // longer compute a concrete concatenation
-    allConcrete = false;
-  }
-
-  // if every element was a concrete TupleType, we know the exact flattened type
-  if (allConcrete) {
-    MLIRContext *ctx = getContext();
-    Type expected = TupleType::get(ctx, flattenedElems);
     if (resultTy != expected)
       return emitOpError()
-             << "result type must be concatenation of inner tuples; expected "
-             << expected << ", got " << resultTy;
+             << "result type must be the concatenation of inner tuples; "
+             << "expected " << expected << ", got " << resultTy;
     return success();
   }
 
-  // at least one element was polymorphic; require a polymorphic result too
+  // if inference failed, some element is polymorphic TupleLike
+  // in that case, result must be polymorphic as well
   if (!isa<PolyType>(resultTy))
     return emitOpError()
-           << "result type must be '!tuple.poly' when any input tuple element is a "
-           << "polymorphic TupleLike; got " << resultTy;
+           << "result type must be '!tuple.poly' when any input tuple "
+              "element is polymorphic; got "
+           << resultTy;
 
   return success();
+}
+
+FailureOr<SmallVector<Type>>
+FlattenOp::specializeResultTypes() {
+  // try to infer a concrete result type
+  auto inferred = inferKnownArityResultType();
+  if (failed(inferred))
+    return failure();
+  return SmallVector<Type>{*inferred};
 }
 
 
 //===----------------------------------------------------------------------===//
 // FlatMapOp
 //===----------------------------------------------------------------------===//
+
+FailureOr<Type> FlatMapOp::inferIntermediateMapType(function_ref<InFlightDiagnostic()> errFn) {
+  MLIRContext *ctx = getContext();
+  auto arity = getArity();
+
+  // if we don't know the arity, the input is polymorphic
+  // in that case the only sensible intermediate result type is !tuple.poly<unique>
+  if (!arity) return PolyType::getUnique(ctx);
+
+  // degenerate case: tuple<> -> map result is also tuple<>
+  if (*arity == 0) return TupleType::get(ctx, {});
+
+  // treat the body as (Eformal) -> Yformal
+  FunctionType calleeTy = getBodyFunctionType();
+  Type Yformal = calleeTy.getResult(0);
+
+  SmallVector<Type, 8> elementTypes;
+  elementTypes.reserve(*arity);
+
+  for (unsigned i = 0; i < *arity; ++i) {
+    // specialization for this iteration
+    auto subst = buildSubstitutionForIteration(i, errFn);
+    if (failed(subst)) return failure();
+
+    // instantiate the body result type for this element
+    Type Yactual = trait::applySubstitutionToFixedPoint(*subst, Yformal);
+
+    if (!isTupleLike(Yactual)) {
+      if (errFn) errFn() << "body yield for element " << i
+                         << " must be TupleLike; got " << Yactual;
+      return failure();
+    }
+
+    // for the intermediate map, each outer element is the per-element yield type
+    elementTypes.push_back(Yactual);
+  }
+
+  // mapResultType = tuple<Y1,...,Yn>
+  return TupleType::get(ctx, elementTypes);
+}
 
 LogicalResult FlatMapOp::verify() {
   // body must exist, have exactly 1 arg, and end with tuple.yield
@@ -766,11 +848,15 @@ LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigne
     return success();
   }
 
-  // at least one yield is polymorphic; we can't know total arity,
-  // so the only sensible result type is !tuple.poly
-  if (!isa<PolyType>(resultTy))
-    return err() << "result type must be '!tuple.poly' when any yielded tuple "
-                 << "is polymorphic; got " << resultTy;
+  // at least one yield is polymorphic: we've already checked that the result is TupleLike,
+  // and that the body is specialization-safe. let higher-level dialects
+  // enforce stronger shape invariants if they want
+
+//  // at least one yield is polymorphic; we can't know total arity,
+//  // so the only sensible result type is !tuple.poly
+//  if (!isa<PolyType>(resultTy))
+//    return err() << "result type must be '!tuple.poly' when any yielded tuple "
+//                 << "is polymorphic; got " << resultTy;
 
   return success();
 }
