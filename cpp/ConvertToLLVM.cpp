@@ -7,46 +7,20 @@
 
 namespace mlir::tuple {
 
-// XXX TODO I think this is in the wrong place
-//          AppendOp should lower to tuple.make, not LLVM stuff
-//          We should move this to Monomorphization.cpp
-struct AppendOpLowering : OpConversionPattern<AppendOp> {
+struct GetOpLowering : OpConversionPattern<GetOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
-  matchAndRewrite(AppendOp op, OpAdaptor adaptor,
+  matchAndRewrite(GetOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto inputTupleTy = dyn_cast_or_null<TupleType>(op.getTuple().getType());
-    if (!inputTupleTy)
-      return rewriter.notifyMatchFailure(op, "unsupported input tuple type");
+    int64_t index = op.getIndex().getSExtValue();
 
-    auto resultTupleTy = dyn_cast_or_null<TupleType>(op.getResult().getType());
-    if (!resultTupleTy)
-      return rewriter.notifyMatchFailure(op, "unsupported result tuple type");
+    rewriter.replaceOpWithNewOp<LLVM::ExtractValueOp>(
+      op,
+      adaptor.getTuple(),
+      index
+    );
 
-    auto loc = op.getLoc();
-
-    // get the lowered result struct type
-    auto resultStructTy = cast<LLVM::LLVMStructType>(getTypeConverter()->convertType(resultTupleTy));
-
-    // start with an undefined struct
-    Value result = rewriter.create<LLVM::UndefOp>(loc, resultStructTy);
-
-    // extract each field from the input tuple and insert into result
-    Value inputStruct = adaptor.getTuple();
-    for (auto idx : llvm::seq<unsigned>(0, inputTupleTy.size())) {
-      Value field = rewriter.create<LLVM::ExtractValueOp>(
-        loc, inputStruct, idx);
-
-      result = rewriter.create<LLVM::InsertValueOp>(
-        loc, result, field, idx);
-    }
-
-    // insert the appended element as the last field
-    result = rewriter.create<LLVM::InsertValueOp>(
-      loc, result, adaptor.getElement(), inputTupleTy.size());
-
-    rewriter.replaceOp(op, result);
     return success();
   }
 };
@@ -93,24 +67,6 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
   }
 };
 
-struct GetOpLowering : OpConversionPattern<GetOp> {
-  using OpConversionPattern::OpConversionPattern;
-
-  LogicalResult
-  matchAndRewrite(GetOp op, OpAdaptor adaptor,
-                  ConversionPatternRewriter &rewriter) const override {
-    int64_t index = op.getIndex().getSExtValue();
-
-    rewriter.replaceOpWithNewOp<LLVM::ExtractValueOp>(
-      op,
-      adaptor.getTuple(),
-      index
-    );
-
-    return success();
-  }
-};
-
 void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
   // add a type conversion all TupleTypes to !llvm.struct
   typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
@@ -131,9 +87,8 @@ void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rew
 
   // add LLVM-specific lowering patterns
   patterns.add<
-    AppendOpLowering,
-    MakeOpLowering,
-    GetOpLowering
+    GetOpLowering,
+    MakeOpLowering
   >(typeConverter, patterns.getContext());
 }
 

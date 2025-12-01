@@ -237,6 +237,33 @@ struct AllOpLowering : OpRewritePattern<AllOp> {
   }
 };
 
+// rewrites tuple.append into tuple.make once the arity of the input tuple is known
+struct AppendOpLowering : OpRewritePattern<AppendOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(AppendOp op,
+                                PatternRewriter &rewriter) const override {
+    // we lower only when the input is TupleType
+    auto inputTupleTy = dyn_cast_or_null<TupleType>(op.getTuple().getType());
+    if (!inputTupleTy)
+      return rewriter.notifyMatchFailure(op, "unsupported input tuple type");
+
+    auto loc = op.getLoc();
+    unsigned arity = inputTupleTy.size();
+
+    SmallVector<Value> elems;
+    elems.reserve(arity + 1);
+
+    for (unsigned i = 0; i < arity; ++i) {
+      elems.push_back(rewriter.create<GetOp>(loc, op.getTuple(), i));
+    }
+    elems.push_back(op.getElement());
+
+    rewriter.replaceOpWithNewOp<MakeOp>(op, elems);
+    return success();
+  }
+};
+
 // rewrites tuple.cat into tuple.make once the arity of inputs are known
 struct CatOpLowering : OpRewritePattern<CatOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -545,10 +572,12 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
   //  - CmpOpPartialEqLowering / CmpOpPartialOrdLowering: rewrite
   //    `tuple.cmp` into a trait-method-driven `tuple.foldl`
   //  - AllOpLowering: rewrite `tuple.all` into `tuple.foldl`
+  //  - AppendOpLowering: rewrite `tuple.append` into `tuple.make`
   //  - CatOpLowering: rewrite `tuple.cat` into a single `tuple.make`
   //  - DropLastOpLowering: rewrite `tuple.drop_last` into `tuple.make`
   patterns.add<
     AllOpLowering,
+    AppendOpLowering,
     CatOpLowering,
     CmpOpMonoSynthesizeClaims,
     CmpOpPartialEqLowering,
