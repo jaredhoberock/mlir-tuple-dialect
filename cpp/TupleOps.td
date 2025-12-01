@@ -177,6 +177,32 @@ def CmpOp : TupleOp<"cmp", [
   let hasVerifier = 1;
 }
 
+def DropLastOp : TupleOp<"drop_last", [Pure]> {
+  let summary = "Remove the last element from a tuple";
+  let description = [{
+    Creates a new tuple containing all but the last element of the input tuple.
+    The input tuple must have at least one element.
+  }];
+
+  let arguments = (ins TupleLike:$input);
+  let results = (outs TupleLike:$result);
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    static FailureOr<Type> inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
+  }];
+
+  let builders = [
+    OpBuilder<(ins "Value":$input), [{
+      auto maybeResTy = DropLastOp::inferResultType(input.getType());
+      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
+      build($_builder, $_state, resTy, input);
+    }]>
+  ];
+}
+
 def FlattenOp : TupleOp<"flatten", [
   Pure,
   ResultTypeSpecializationOpInterface,

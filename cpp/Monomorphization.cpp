@@ -494,6 +494,32 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
   }
 };
 
+struct DropLastOpLowering : OpRewritePattern<DropLastOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DropLastOp op,
+                                PatternRewriter &rewriter) const override {
+    auto inputTupleTy = dyn_cast<TupleType>(op.getInput().getType());
+    if (!inputTupleTy)
+      return rewriter.notifyMatchFailure(op, "input is not TupleType");
+
+    Location loc = op.getLoc();
+    unsigned arity = inputTupleTy.size();
+    if (arity < 1)
+      return rewriter.notifyMatchFailure(op, "input tuple arity is < 1");
+
+    SmallVector<Value> elems;
+    elems.reserve(arity - 1);
+
+    for (unsigned i = 0; i < arity - 1; ++i) {
+      elems.push_back(rewriter.create<GetOp>(loc, op.getInput(), i));
+    }
+
+    rewriter.replaceOpWithNewOp<MakeOp>(op, elems);
+    return success();
+  }
+};
+
 /// Register patterns that *connect* the tuple dialect to the trait dialect.
 ///
 /// This group does **not** instantiate polymorphic regions. Instead, it:
@@ -520,12 +546,14 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
   //    `tuple.cmp` into a trait-method-driven `tuple.foldl`
   //  - AllOpLowering: rewrite `tuple.all` into `tuple.foldl`
   //  - CatOpLowering: rewrite `tuple.cat` into a single `tuple.make`
+  //  - DropLastOpLowering: rewrite `tuple.drop_last` into `tuple.make`
   patterns.add<
     AllOpLowering,
     CatOpLowering,
     CmpOpMonoSynthesizeClaims,
     CmpOpPartialEqLowering,
-    CmpOpPartialOrdLowering
+    CmpOpPartialOrdLowering,
+    DropLastOpLowering
   >(patterns.getContext());
 }
 

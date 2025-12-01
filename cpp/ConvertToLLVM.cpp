@@ -7,6 +7,9 @@
 
 namespace mlir::tuple {
 
+// XXX TODO I think this is in the wrong place
+//          AppendOp should lower to tuple.make, not LLVM stuff
+//          We should move this to Monomorphization.cpp
 struct AppendOpLowering : OpConversionPattern<AppendOp> {
   using OpConversionPattern::OpConversionPattern;
 

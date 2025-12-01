@@ -560,6 +560,60 @@ FailureOr<mlir::trait::TraitOp> CmpOp::getTrait(llvm::function_ref<InFlightDiagn
 
 
 //===----------------------------------------------------------------------===//
+// DropLastOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<Type> DropLastOp::inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn) {
+  if (!isTupleLike(inputTy)) {
+    if (errFn) errFn() << "input must be TupleLike, got " << inputTy;
+    return failure();
+  }
+
+  // polymorphic case: result is a fresh poly
+  if (isa<PolyType>(inputTy))
+    return PolyType::getUnique(inputTy.getContext());
+
+  // concrete case
+  auto tupleTy = dyn_cast<TupleType>(inputTy);
+  if (!tupleTy) {
+    if (errFn) errFn() << "expected concrete TupleType, got " << inputTy;
+    return failure();
+  }
+
+  if (tupleTy.size() == 0) {
+    if (errFn) errFn() << "cannot drop last from empty tuple";
+    return failure();
+  }
+
+  SmallVector<Type> elems(tupleTy.getTypes().drop_back());
+  return TupleType::get(inputTy.getContext(), elems);
+}
+
+LogicalResult DropLastOp::verify() {
+  Type inputTy = getInput().getType();
+  Type resultTy = getResult().getType();
+
+  // polymorphic case
+  if (isa<PolyType>(inputTy)) {
+    if (!isa<PolyType>(resultTy))
+      return emitOpError() << "result must be !tuple.poly when input is polymorphic, got " << resultTy;
+    return success();
+  }
+
+  // concrete case
+  auto expectedResultTy = inferResultType(inputTy, [&]() { return emitOpError(); });
+  if (failed(expectedResultTy))
+    return failure();
+
+  if (resultTy != *expectedResultTy)
+    return emitOpError() << "result type mismatch: expected " << *expectedResultTy
+                         << ", got " << resultTy;
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // FlattenOp
 //===----------------------------------------------------------------------===//
 
