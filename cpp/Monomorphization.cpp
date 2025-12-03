@@ -9,33 +9,36 @@
 
 namespace mlir::tuple {
 
-/// This file implements the tuple dialect's "monomorphization" pipeline.
+/// This file defines several distinct pattern sets, each responsible for a
+/// different phase of lowering. They must remain clearly separated to preserve
+/// invariants about polymorphism, trait integration, and tuple structure.
 ///
-/// Conceptually there are three groups of patterns:
+/// 1. populateConvertTupleToTraitPatterns
+///    -----------------------------------
+///    Introduces tuple→trait integration IR that *cannot* appear during
+///    instantiation. This includes generating helper traits and synthesizing
+///    per-element trait claims. Runs before monomorphization.
 ///
-///  1. populateConvertTupleToTraitPatterns
-///     - These patterns *bridge* between tuple ops and the trait dialect.
-///       They introduce helper traits (e.g. mapper traits) and rewrite
-///       tuple ops into forms that are trait-aware (e.g. synthesizing
-///       claim tuples, lowering `tuple.all` to `tuple.foldl`, etc.).
-///       At this stage IR may still be polymorphic.
+/// 2. populateTupleElaborationPatterns
+///    -------------------------------
+///    Elaborates higher-level tuple operations into a uniform set of primitive
+///    tuple constructs. These patterns stay entirely inside the tuple dialect.
+///    They do not instantiate polymorphism and do not introduce trait-level IR.
+///    They simply normalize tuple IR into a structurally explicit form.
 ///
-///  2. populateInstantiateMonomorphsPatterns
-///     - These patterns fire once tuple shapes / element types are known.
-///       They inline higher-order tuple ops (`tuple.map`, `tuple.flat_map`,
-///       `tuple.foldl`, ...) by iterating over tuple elements and
-///       instantiating their polymorphic regions. The result is a
-///       first-order, monomorphic tuple IR expressed in terms of
-///       `tuple.get` / `tuple.make` and ordinary ops.
+/// 3. populateInstantiateMonomorphsPatterns
+///    -------------------------------------
+///    Specializes polymorphic tuple operations once shapes and substitutions are
+///    known. This phase unrolls higher-order tuple ops, performs body
+///    instantiation, and produces fully monomorphic, first-order tuple IR.
+///    Includes in-dialect elaboration patterns because instantiation may reveal
+///    more tuple structure to rewrite.
 ///
-///  3. populateEraseClaimsPatterns
-///     - These patterns cooperate with a TypeConverter that erases
-///       `!trait.claim` types. They rewrite `tuple.get` / `tuple.make` so
-///       that erased claim elements disappear from tuple types and from
-///       the IR, adjusting indices and operands as needed.
-///
-/// The three `populate*` functions below each register the patterns that
-/// belong to their respective phase.
+/// 4. populateEraseClaimsPatterns
+///    ----------------------------
+///    Cooperates with a TypeConverter to remove `!trait.claim` types from the IR
+///    after trait reasoning is complete. Adjusts tuple IR (indices, make ops,
+///    etc.) to account for elements that are erased or expanded.
 
 
 //===----------------------------------------------------------------------===//
@@ -178,6 +181,25 @@ struct CmpOpMonoSynthesizeClaims : OpRewritePattern<CmpOp> {
   }
 };
 
+
+/// Register patterns that introduce trait-specific stuff that *cannot*
+/// be introduced during instantiation/monomorphization
+void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
+  // introduce the @tuple.MapPartialEq and @tuple.MapPartialOrd traits
+  // that drive tuple-level implementations of these traits
+  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialEq");
+  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialOrd");
+
+  // these patterns introduce trait.allege ops, which cannot happen
+  // during monomorphization
+  patterns.add<CmpOpMonoSynthesizeClaims>(patterns.getContext());
+}
+
+
+//===----------------------------------------------------------------------===//
+// populateTupleElaborationPatterns
+//===----------------------------------------------------------------------===//
+
 // rewrites tuple.all into a tuple.foldl op
 struct AllOpLowering : OpRewritePattern<AllOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -245,8 +267,9 @@ struct AppendOpLowering : OpRewritePattern<AppendOp> {
                                 PatternRewriter &rewriter) const override {
     // we lower only when the input is TupleType
     auto inputTupleTy = dyn_cast_or_null<TupleType>(op.getTuple().getType());
-    if (!inputTupleTy)
+    if (!inputTupleTy) {
       return rewriter.notifyMatchFailure(op, "unsupported input tuple type");
+    }
 
     auto loc = op.getLoc();
     unsigned arity = inputTupleTy.size();
@@ -547,49 +570,95 @@ struct DropLastOpLowering : OpRewritePattern<DropLastOp> {
   }
 };
 
-/// Register patterns that *connect* the tuple dialect to the trait dialect.
-///
-/// This group does **not** instantiate polymorphic regions. Instead, it:
-///   - synthesizes helper traits used by tuple algorithms
-///     (e.g. `@tuple.MapPartialEq`),
-///   - rewrites tuple operations into trait-aware forms
-///     (e.g. `tuple.cmp` gains an explicit claims tuple),
-///   - expresses some tuple ops in terms of others when that is part of
-///     the trait-based lowering story (e.g. `tuple.all` -> `tuple.foldl`,
-///     `tuple.cat` -> `tuple.make`).
-///
-/// These patterns are intended to run while IR may still be polymorphic;
-/// they prepare the IR so that later phases can instantiate and erase
-/// traits cleanly.
-void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
-  // introduce the @tuple.MapPartialEq and @tuple.MapPartialOrd traits
-  // that drive tuple-level implementations of these traits
-  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialEq");
-  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialOrd");
+struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
+  using OpRewritePattern::OpRewritePattern;
 
-  // bridge tuple ops to the trait world and tuple HOFs:
-  //  - CmpOpMonoSynthesizeClaims: synthesize explicit claim tuples
-  //  - CmpOpPartialEqLowering / CmpOpPartialOrdLowering: rewrite
-  //    `tuple.cmp` into a trait-method-driven `tuple.foldl`
-  //  - AllOpLowering: rewrite `tuple.all` into `tuple.foldl`
-  //  - AppendOpLowering: rewrite `tuple.append` into `tuple.make`
-  //  - CatOpLowering: rewrite `tuple.cat` into a single `tuple.make`
-  //  - DropLastOpLowering: rewrite `tuple.drop_last` into `tuple.make`
-  patterns.add<
-    AllOpLowering,
-    AppendOpLowering,
-    CatOpLowering,
-    CmpOpMonoSynthesizeClaims,
-    CmpOpPartialEqLowering,
-    CmpOpPartialOrdLowering,
-    DropLastOpLowering
-  >(patterns.getContext());
-}
+  LogicalResult matchAndRewrite(ExclusiveScanOp op,
+                                PatternRewriter& rewriter) const override {
+    // replace tuple.exclusive_scan with tuple.foldl:
 
+    // %res = tuple.exclusive_scan %input, %init : !T, !I -> !R {
+    // ^bb0(%acc: !A, %e: !E):
+    //   %yielded = ... : !Y
+    //   yield %yielded : !Y
+    // }
+    // 
+    // =>
+    //
+    // !P = !tuple.poly<unique>
+    // !N = !tuple.poly<unique> // this type will be inferred
+    //
+    // %first = tuple.make (%init : !I) -> tuple<!I>
+    // %res = tuple.foldl %first, %input : tuple<!I>, !T -> !R {
+    // ^bb0(%prev: !P, %e: !E):
+    //   %acc = tuple.last %prev : !P -> !A
+    //   %yielded = ... : !Y
+    //   %next = tuple.append %prev, %yielded : !P, !Y -> !N
+    //   yield %next : !N
+    // }
 
-//===----------------------------------------------------------------------===//
-// populateInstantiateMonomorphsPatterns
-//===----------------------------------------------------------------------===//
+    auto loc = op.getLoc();
+    MLIRContext *ctx = op.getContext();
+
+    // initial value of the prefix state: (init)
+    auto first = rewriter.create<MakeOp>(loc, ValueRange{op.getInit()});
+
+    auto fold = rewriter.create<FoldlOp>(
+        loc,
+        /*resultTy=*/op.getResult().getType(),
+        /*init=*/first,
+        /*inputs=*/op.getInput()
+    );
+    {
+      PatternRewriter::InsertionGuard guard(rewriter);
+
+      // original exclusive scan body: ^bb0(%acc: !A, %e: !E)
+      Block &oldBody = op.getBody().front();
+      Type elemTy = oldBody.getArgument(1).getType();
+
+      // polymorphic prefix state type:
+      // !P = !tuple.poly<unique>
+      Type stateTy = PolyType::getUnique(ctx);
+
+      // new fold body:
+      // ^bb0(%prev: !P, %e: !E)
+      Block *newBody = rewriter.createBlock(&fold.getBody());
+      newBody->addArguments({stateTy, elemTy}, {loc, loc});
+
+      Value prev = newBody->getArgument(0);
+      Value elem = newBody->getArgument(1);
+
+      // %acc = tuple.last %prev : !P -> !A
+      rewriter.setInsertionPointToStart(newBody);
+      Value acc = rewriter.create<LastOp>(loc, prev);
+
+      // inline the original body, remapping:
+      // old %acc -> %acc
+      // old %e   -> %elem
+      rewriter.mergeBlocks(
+        &oldBody,
+        newBody,
+        ValueRange{acc, elem}
+      );
+
+      // after merge: we have the old yield inside the new block
+      auto oldYield = cast<YieldOp>(fold.bodyYield());
+      Value yielded = oldYield.getOperand();
+
+      // %next = tuple.append %prev, %yielded : !P, !Y -> !N
+      rewriter.setInsertionPoint(oldYield);
+      Value next = rewriter.create<AppendOp>(loc, prev, yielded);
+
+      // yield %next : !N
+      rewriter.replaceOpWithNewOp<YieldOp>(oldYield, next);
+    }
+
+    // replace the original op with fold result
+    rewriter.replaceOp(op, fold.getResult());
+
+    return success();
+  }
+};
 
 struct FlatMapOpLowering : public OpRewritePattern<FlatMapOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -617,6 +686,44 @@ struct FlatMapOpLowering : public OpRewritePattern<FlatMapOp> {
     return success();
   }
 };
+
+struct LastOpLowering : OpRewritePattern<LastOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(LastOp op,
+                                PatternRewriter &rewriter) const override {
+    auto inputTupleTy = dyn_cast<TupleType>(op.getInput().getType());
+    if (!inputTupleTy)
+      return rewriter.notifyMatchFailure(op, "input is not TupleType");
+
+    if (inputTupleTy.size() == 0)
+      return rewriter.notifyMatchFailure(op, "input is empty tuple");
+
+    rewriter.replaceOpWithNewOp<GetOp>(op, op.getInput(), inputTupleTy.size() - 1);
+    return success();
+  }
+};
+
+
+static void populateTupleElaborationPatterns(RewritePatternSet& patterns) {
+  // all of these patterns introduce rewrites that stay within the tuple dialect
+  patterns.add<
+    AllOpLowering,
+    AppendOpLowering,
+    CatOpLowering,
+    CmpOpPartialEqLowering,
+    CmpOpPartialOrdLowering,
+    DropLastOpLowering,
+    ExclusiveScanOpLowering,
+    FlatMapOpLowering,
+    LastOpLowering
+  >(patterns.getContext());
+}
+
+
+//===----------------------------------------------------------------------===//
+// populateInstantiateMonomorphsPatterns
+//===----------------------------------------------------------------------===//
 
 struct FoldlOpInstantiation : public OpRewritePattern<FoldlOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -806,36 +913,10 @@ struct MapOpInstantiation : public OpRewritePattern<MapOp> {
 };
 
 
-/// Register patterns that *instantiate* tuple higher-order functions once
-/// their tuple shapes are known.
-///
-/// This phase assumes tuple inputs/results have become concrete `TupleType`s
-/// (and any necessary trait plumbing has already been introduced).
-/// It:
-///   - inlines `tuple.foldl` bodies element-by-element,
-///   - inlines `tuple.map` element-by-element,
-///   - inlines `tuple.flat_map` and flattens the per-element result tuples.
-///
-/// After this phase, there should be no remaining `tuple.map`,
-/// `tuple.flat_map`, or `tuple.foldl` in the IR, only `tuple.get`,
-/// `tuple.make`, and ordinary scalar / trait operations.
 void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
-  // instantiating monomorphs may generate new tuple.cmp ops,
-  // so include the trait-aware cmp lowerings here as well
-  patterns.add<
-    CmpOpPartialEqLowering,
-    CmpOpPartialOrdLowering
-  >(patterns.getContext());
-
-  // tuple.all and tuple.flat_map lower to tuple.fold & tuple.map;
-  // include those rewrites so that these are expanded to these before
-  // we instantiate foldl & map bodies
-  patterns.add<
-    AllOpLowering,
-    FlatMapOpLowering
-  >(patterns.getContext());
-
-  patterns.add<FlatMapOpLowering>(patterns.getContext());
+  // instantiating monomorphs may generate new tuple ops,
+  // so include all the in-dialect elaboration patterns
+  populateTupleElaborationPatterns(patterns);
 
   // tuple.flatten, tuple.foldl and tuple.map
   // lowerings instantiate / specialize tuple structure.

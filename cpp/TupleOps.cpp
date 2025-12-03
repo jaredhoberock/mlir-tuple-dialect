@@ -10,6 +10,11 @@
 
 namespace mlir::tuple {
 
+
+//===----------------------------------------------------------------------===//
+// AllOp
+//===----------------------------------------------------------------------===//
+
 LogicalResult AllOp::verify() {
   // body must exist, have exactly 1 arg, and end with tuple.yield
   Block &body = getBody().front();
@@ -97,39 +102,91 @@ LogicalResult AllOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   return success();
 }
 
-LogicalResult AppendOp::verify() {
-  MLIRContext* ctx = getContext();
 
+//===----------------------------------------------------------------------===//
+// AppendOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<Type> AppendOp::inferResultType(
+    Type tupleTy,
+    Type elementTy,
+    function_ref<InFlightDiagnostic()> errFn) {
+  if (!isTupleLike(tupleTy)) {
+    if (errFn) errFn() << "tuple operand must be TupleLike";
+    return failure();
+  }
+
+  MLIRContext *ctx = tupleTy.getContext();
+
+  // poly case -> fresh poly result
+  if (trait::isPolymorphicType(tupleTy)) {
+    return PolyType::getUnique(ctx);
+  }
+
+  // concrete TupleType case: concatenate element types
+  auto concreteTupleTy = dyn_cast<TupleType>(tupleTy);
+  if (!concreteTupleTy) {
+    if (errFn) errFn() << "tuple operand must be TupleType";
+    return failure();
+  }
+
+  SmallVector<Type> elems;
+  elems.reserve(concreteTupleTy.size() + 1);
+  elems.append(concreteTupleTy.begin(), concreteTupleTy.end());
+  elems.push_back(elementTy);
+
+  return TupleType::get(ctx, elems);
+}
+
+FailureOr<SmallVector<Type>> AppendOp::specializeResultTypes() {
+  // are both operands concrete?
+  auto tupleTy = dyn_cast<TupleType>(getTuple().getType());
+  if (!tupleTy || trait::isPolymorphicType(getElement().getType()))
+    return failure();
+
+  // try to infer a concrete result type
+  auto inferred = inferResultType(tupleTy, getElement().getType());
+  if (failed(inferred))
+    return failure();
+
+  return SmallVector<Type>{*inferred};
+}
+
+LogicalResult AppendOp::verify() {
   // tuple.append has two modes
   // 1. concrete mode: input tuple is tuple, result type must also be TupleType
-  // 2. polymorphic mode: input tuple is !tuple.poly, result type must be !trait.poly
-  //    XXX TODO seems like the result type could also be !tuple.poly
+  // 2. polymorphic mode: input tuple is !tuple.poly, result type must be !tuple.poly
   Type inputTy = getTuple().getType();
 
   // if input type is tuple<a,b,c>
   if (TupleType concreteTupleTy = dyn_cast<TupleType>(inputTy)) {
-    // expected result type is tuple<a,b,c,d>
-    SmallVector<Type> resultTypes(concreteTupleTy.getTypes());
-    resultTypes.push_back(getElement().getType());
-    Type expectedResultTy = TupleType::get(ctx, resultTypes);
+    // infer the result type
+    auto expectedResultTy = inferResultType(concreteTupleTy, getElement().getType());
+    if (failed(expectedResultTy))
+      return failure();
 
-    if (expectedResultTy != getResult().getType())
-      return emitOpError() << "type mismatch: expected '" << expectedResultTy << "'"
+    if (*expectedResultTy != getResult().getType())
+      return emitOpError() << "type mismatch: expected '" << *expectedResultTy << "'"
                            << "got '" << getResult().getType() << "'";
     return success();
   }
 
   // if input type is !tuple.poly
   if (PolyType polyTupleTy = dyn_cast<PolyType>(inputTy)) {
-    // expected result type is !trait.poly
-    if (!isa<trait::PolyType>(getResult().getType()))
-      return emitOpError() << "type mismatch: expected '!trait.poly', got '"
+    // expected result type is !tuple.poly
+    if (!isa<PolyType>(getResult().getType()))
+      return emitOpError() << "type mismatch: expected '!tuple.poly', got '"
                            << getResult().getType() << "'";
     return success();
   }
 
   return emitError() << "unsupported type for input tuple: '" << inputTy << "'";
 }
+
+
+//===----------------------------------------------------------------------===//
+// CatOp
+//===----------------------------------------------------------------------===//
 
 LogicalResult CatOp::verify() {
   Type lhsTy = getLhs().getType();
@@ -202,55 +259,6 @@ FailureOr<Type> CatOp::inferResultType(Type lhsTy, Type rhsTy, llvm::function_re
   elems.append(rhs.begin(), rhs.end());
 
   return TupleType::get(ctx, elems);
-}
-
-LogicalResult MakeOp::verify() {
-  auto tupleTy = dyn_cast<TupleType>(getResult().getType());
-  if (!tupleTy)
-    return emitOpError("result must be a tuple type");
-
-  if (tupleTy.size() != getNumOperands())
-    return emitOpError("operand/result arity mismatch");
-
-  for (auto [i, operand] : llvm::enumerate(getOperands())) {
-    Type elemTy = tupleTy.getType(i);
-    if (elemTy != operand.getType())
-      return emitOpError()
-             << "operand " << i << " has type " << operand.getType()
-             << ", but result element is " << elemTy;
-  }
-
-  return success();
-}
-
-FailureOr<SmallVector<Type>> MakeOp::specializeResultTypes() {
-  auto tupleTy = TupleType::get(getContext(), getOperandTypes());
-  SmallVector<Type> result{tupleTy};
-  return result;
-}
-
-LogicalResult GetOp::verify() {
-  // get the TupleType of the operand
-  TupleType tupleTy = getTupleType();
-  int64_t index = getIndex().getSExtValue();
-
-  // bounds check
-  auto elementTypes = tupleTy.getTypes();
-  if (index < 0 || index >= elementTypes.size()) {
-    return emitOpError() << "index " << index
-                         << " out of bounds for tuple of size "
-                         << elementTypes.size();
-  }
-
-  // check that the result type matches the element type
-  Type expectedTy = elementTypes[index];
-  if (getResult().getType() != expectedTy) {
-    return emitOpError() << "result type " << getResult().getType()
-                         << " does not match tuple element type " << expectedTy
-                         << " at index " << index;
-  }
-
-  return success();
 }
 
 
@@ -560,6 +568,200 @@ FailureOr<mlir::trait::TraitOp> CmpOp::getTrait(llvm::function_ref<InFlightDiagn
 
 
 //===----------------------------------------------------------------------===//
+// ExclusiveScanOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult ExclusiveScanOp::verify() {
+  Block &body = getBody().front();
+  if (body.getNumArguments() != 2)
+    return emitOpError() << "body block must have exactly 2 arguments (accumulator, element), got "
+                         << body.getNumArguments();
+
+  if (body.empty())
+    return emitOpError("body block cannot be empty");
+
+  if (!isa<YieldOp>(body.back()))
+    return emitOpError("body block must terminate with `tuple.yield`, got ")
+           << body.back().getName();
+
+  Type inputTy = getInput().getType();
+  if (!isTupleLike(inputTy))
+    return emitOpError() << "input must be TupleLike, got " << inputTy;
+
+  Type resultTy = getResult().getType();
+  if (!isTupleLike(resultTy))
+    return emitOpError() << "result must be TupleLike, got " << resultTy;
+
+  // if input is concrete, result arity must be input arity + 1
+  if (auto inputTT = dyn_cast<TupleType>(inputTy)) {
+    auto resultTT = dyn_cast<TupleType>(resultTy);
+    if (!resultTT)
+      return emitOpError() << "result must be concrete TupleType when tuple is concrete";
+    if (resultTT.size() != inputTT.size() + 1)
+      return emitOpError() << "result arity (" << resultTT.size()
+                           << ") must be input arity + 1 (" << inputTT.size() + 1 << ")";
+  }
+
+  return success();
+}
+
+LogicalResult ExclusiveScanOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto moduleOp = getOperation()->getParentOfType<ModuleOp>();
+  if (!moduleOp)
+    return emitOpError("not contained in a module");
+
+  if (auto N = getInputArity())
+    return verifySymbolUsesWithKnownArity(moduleOp, *N);
+  return verifySymbolUsesWithUnknownArity(moduleOp);
+}
+
+LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity) {
+  auto err = [&]{ return emitOpError(); };
+
+  FunctionType calleeTy = getBodyFunctionType();
+  Type AccFormal = calleeTy.getInput(0);
+  Type YieldFormal = calleeTy.getResult(0);
+
+  // body must preserve accumulator shape
+  if (failed(trait::buildSpecializationSubstitution(AccFormal, YieldFormal, module, err)))
+    return failure();
+
+  // thread accumulator type across iterations, collecting result element types
+  SmallVector<Type> resultElemTypes;
+  resultElemTypes.reserve(arity + 1);
+
+  Type prev = getInit().getType();
+  resultElemTypes.push_back(prev);
+
+  for (unsigned i = 0; i < arity; ++i) {
+    FunctionType callerTy = getFunctionTypeForIteration(i, prev);
+
+    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    if (failed(subst))
+      return failure();
+
+    prev = trait::applySubstitutionToFixedPoint(*subst, YieldFormal);
+    resultElemTypes.push_back(prev);
+  }
+
+  // verify result type matches expected
+  TupleType expectedResultTy = TupleType::get(getContext(), resultElemTypes);
+  if (getResult().getType() != expectedResultTy)
+    return err() << "result type mismatch: expected " << expectedResultTy
+                 << ", got " << getResult().getType();
+
+  return success();
+}
+
+LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
+  auto err = [&]{ return emitOpError(); };
+
+  FunctionType calleeTy = getBodyFunctionType();
+  Type AccFormal = calleeTy.getInput(0);
+  Type ElemFormal = calleeTy.getInput(1);
+  Type YieldFormal = calleeTy.getResult(0);
+  Type initActual = getInit().getType();
+
+  // The accumulator formal must be compatible with the init type.
+  // This ensures the body can accept the initial value.
+  if (failed(trait::buildSpecializationSubstitution(AccFormal, initActual, module, err)))
+    return failure();
+
+  // When arity is unknown, we can't verify each element type individually.
+  // The element formal must be purely polymorphic (e.g., !trait.a) so it can
+  // accept any element type when the tuple is eventually instantiated.
+  if (!trait::isPurelyPolymorphicType(ElemFormal))
+    return emitOpError() << "element body argument must be purely polymorphic; got " << ElemFormal;
+
+  // The body must preserve the accumulator's shape: what goes in must come out.
+  // This ensures the accumulator type is consistent across all iterations.
+  if (failed(trait::buildSpecializationSubstitution(AccFormal, YieldFormal, module, err)))
+    return failure();
+
+  // Result must be polymorphic when input is polymorphic
+  if (!isa<PolyType>(getResult().getType()))
+      return emitOpError() << "result must be !tuple.poly when input is polymorphic";
+
+  return success();
+}
+
+YieldOp ExclusiveScanOp::bodyYield() {
+  return cast<YieldOp>(getBody().front().back());
+}
+
+FunctionType ExclusiveScanOp::getBodyFunctionType() {
+  return FunctionType::get(
+      getContext(),
+      getBody().front().getArgumentTypes(),
+      bodyYield().getOperand().getType()
+  );
+}
+
+FunctionType ExclusiveScanOp::getFunctionTypeForIteration(
+    unsigned int i,
+    Type accumulatorType) {
+  auto tupleType = getInputTupleTypeWithKnownArity();
+  if (failed(tupleType))
+    llvm_unreachable("getFunctionTypeForIteration: tuple must be TupleType");
+
+  return FunctionType::get(
+      getContext(),
+      {accumulatorType, tupleType->getType(i)},
+      bodyYield().getOperand().getType()
+  );
+}
+
+FailureOr<DenseMap<Type,Type>> ExclusiveScanOp::buildSubstitutionForIteration(
+    unsigned int i,
+    Type accumulatorType,
+    function_ref<InFlightDiagnostic()> errFn) {
+  auto tupleType = getInputTupleTypeWithKnownArity(errFn);
+  if (failed(tupleType))
+    return failure();
+
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module) {
+    if (errFn) errFn() << "not in a module";
+    return failure();
+  }
+
+  auto bodyTy = getBodyFunctionType();
+  auto iterationTy = getFunctionTypeForIteration(i, accumulatorType);
+
+  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
+}
+
+
+//===----------------------------------------------------------------------===//
+// GetOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult GetOp::verify() {
+  // get the TupleType of the operand
+  TupleType tupleTy = getTupleType();
+  int64_t index = getIndex().getSExtValue();
+
+  // bounds check
+  auto elementTypes = tupleTy.getTypes();
+  if (index < 0 || index >= elementTypes.size()) {
+    return emitOpError() << "index " << index
+                         << " out of bounds for tuple of size "
+                         << elementTypes.size();
+  }
+
+  // check that the result type matches the element type
+  Type expectedTy = elementTypes[index];
+  if (getResult().getType() != expectedTy) {
+    return emitOpError() << "result type " << getResult().getType()
+                         << " does not match tuple element type " << expectedTy
+                         << " at index " << index;
+  }
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
 // DropLastOp
 //===----------------------------------------------------------------------===//
 
@@ -587,6 +789,17 @@ FailureOr<Type> DropLastOp::inferResultType(Type inputTy, function_ref<InFlightD
 
   SmallVector<Type> elems(tupleTy.getTypes().drop_back());
   return TupleType::get(inputTy.getContext(), elems);
+}
+
+FailureOr<SmallVector<Type>> DropLastOp::specializeResultTypes() {
+  // is the input a concrete TupleType yet?
+  auto tupleTy = dyn_cast<TupleType>(getInput().getType());
+  if (!tupleTy)
+    return failure();
+  auto inferred = inferResultType(tupleTy);
+  if (failed(inferred))
+    return failure();
+  return SmallVector<Type>{*inferred};
 }
 
 LogicalResult DropLastOp::verify() {
@@ -713,8 +926,7 @@ LogicalResult FlattenOp::verify() {
   return success();
 }
 
-FailureOr<SmallVector<Type>>
-FlattenOp::specializeResultTypes() {
+FailureOr<SmallVector<Type>> FlattenOp::specializeResultTypes() {
   // try to infer a concrete result type
   auto inferred = inferKnownArityResultType();
   if (failed(inferred))
@@ -905,13 +1117,6 @@ LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigne
   // at least one yield is polymorphic: we've already checked that the result is TupleLike,
   // and that the body is specialization-safe. let higher-level dialects
   // enforce stronger shape invariants if they want
-
-//  // at least one yield is polymorphic; we can't know total arity,
-//  // so the only sensible result type is !tuple.poly
-//  if (!isa<PolyType>(resultTy))
-//    return err() << "result type must be '!tuple.poly' when any yielded tuple "
-//                 << "is polymorphic; got " << resultTy;
-
   return success();
 }
 
@@ -1112,6 +1317,103 @@ llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
   }
   return *subst;
+}
+
+
+//===----------------------------------------------------------------------===//
+// LastOp
+//===----------------------------------------------------------------------===//
+
+FailureOr<Type> LastOp::inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn) {
+  if (!isTupleLike(inputTy)) {
+    if (errFn) errFn() << "input must be TupleLike, got " << inputTy;
+    return failure();
+  }
+
+  // polymorphic case: result is !trait.poly
+  if (isa<PolyType>(inputTy))
+    return trait::PolyType::getUnique(inputTy.getContext());
+
+  // concrete case
+  auto tupleTy = dyn_cast<TupleType>(inputTy);
+  if (!tupleTy) {
+    if (errFn) errFn() << "expected TupleType, got " << inputTy;
+    return failure();
+  }
+
+  if (tupleTy.size() == 0) {
+    if (errFn) errFn() << "cannot get last element of empty tuple";
+    return failure();
+  }
+
+  return tupleTy.getType(tupleTy.size() - 1);
+}
+
+FailureOr<SmallVector<Type>> LastOp::specializeResultTypes() {
+  // is the input concrete?
+  auto tupleTy = dyn_cast<TupleType>(getInput().getType());
+  if (!tupleTy)
+    return failure();
+
+  // try to infer a concrete result type
+  auto inferred = inferResultType(tupleTy);
+  if (failed(inferred))
+    return failure();
+
+  return SmallVector<Type>{*inferred};
+}
+
+LogicalResult LastOp::verify() {
+  Type inputTy = getInput().getType();
+  Type resultTy = getResult().getType();
+
+  // polymorphic case
+  if (isa<PolyType>(inputTy)) {
+    if (!isa<trait::PolyType>(resultTy))
+      return emitOpError() << "result must be !trait.poly when input is polymorphic, got " << resultTy;
+    return failure();
+  }
+
+  // concrete case
+  auto expectedResultTy = inferResultType(inputTy, [&]() { return emitOpError(); });
+  if (failed(expectedResultTy))
+    return failure();
+
+  if (resultTy != *expectedResultTy)
+    return emitOpError() << "result type mismatch: expected " << *expectedResultTy
+                         << ", got " << resultTy;
+
+  return success();
+}
+
+
+//===----------------------------------------------------------------------===//
+// MakeOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult MakeOp::verify() {
+  auto tupleTy = dyn_cast<TupleType>(getResult().getType());
+  if (!tupleTy)
+    return emitOpError("result must be a tuple type");
+
+  if (tupleTy.size() != getNumOperands())
+    return emitOpError("operand/result arity mismatch");
+
+  for (auto [i, operand] : llvm::enumerate(getOperands())) {
+    Type elemTy = tupleTy.getType(i);
+    if (elemTy != operand.getType())
+      return emitOpError()
+             << "operand " << i << " has type " << operand.getType()
+             << ", but result element is " << elemTy;
+  }
+
+  return success();
+}
+
+FailureOr<SmallVector<Type>> MakeOp::specializeResultTypes() {
+  auto tupleTy = TupleType::get(getContext(), getOperandTypes());
+  SmallVector<Type> result{tupleTy};
+  return result;
 }
 
 

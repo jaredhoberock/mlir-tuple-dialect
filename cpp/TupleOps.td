@@ -71,7 +71,10 @@ def AllOp : TupleOp<"all", [
   }];
 }
 
-def AppendOp : TupleOp<"append", [Pure]> {
+def AppendOp : TupleOp<"append", [
+  Pure,
+  ResultTypeSpecializationOpInterface
+]> {
   let summary = "Append a element to the end of a tuple";
   let description = [{
     Creates a new `tuple` value from an existing `tuple` and element to append.
@@ -81,8 +84,23 @@ def AppendOp : TupleOp<"append", [Pure]> {
   let results = (outs AnyType:$result);
 
   let assemblyFormat = "$tuple `,` $element `:` type($tuple) `,` type($element) `->` type($result) attr-dict";
-
   let hasVerifier = 1;
+
+  let extraClassDeclaration = [{
+    static FailureOr<Type> inferResultType(Type tupleTy, Type elementTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    // for ResultTypeSpecializationOpInterface
+    FailureOr<SmallVector<Type>> specializeResultTypes();
+  }];
+
+  let builders = [
+    // infers the result type
+    OpBuilder<(ins "Value":$tuple, "Value":$element), [{
+      auto maybeResTy = AppendOp::inferResultType(tuple.getType(), element.getType());
+      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
+      build($_builder, $_state, resTy, tuple, element);
+    }]>
+  ];
 }
 
 def CatOp : TupleOp<"cat", [Pure]> {
@@ -177,7 +195,10 @@ def CmpOp : TupleOp<"cmp", [
   let hasVerifier = 1;
 }
 
-def DropLastOp : TupleOp<"drop_last", [Pure]> {
+def DropLastOp : TupleOp<"drop_last", [
+  Pure,
+  ResultTypeSpecializationOpInterface,
+]> {
   let summary = "Remove the last element from a tuple";
   let description = [{
     Creates a new tuple containing all but the last element of the input tuple.
@@ -192,6 +213,9 @@ def DropLastOp : TupleOp<"drop_last", [Pure]> {
 
   let extraClassDeclaration = [{
     static FailureOr<Type> inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    // For ResultTypeSpecializationOpInterface
+    FailureOr<SmallVector<Type>> specializeResultTypes();
   }];
 
   let builders = [
@@ -201,6 +225,72 @@ def DropLastOp : TupleOp<"drop_last", [Pure]> {
       build($_builder, $_state, resTy, input);
     }]>
   ];
+}
+
+def ExclusiveScanOp : TupleOp<"exclusive_scan", [
+  AutomaticAllocationScope,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+  OpAsmOpInterface
+]> {
+  let summary = "Exclusive scan over tuple elements";
+  let description = [{
+    `tuple.exclusive_scan` performs an exclusive scan over the input tuple.
+    The body takes `(accumulator, element)` and yields the next accumulator.
+
+    Returns a tuple with arity = input_arity + 1, containing:
+    - Position 0: the init value
+    - Position i: the accumulator after processing elements 0..i-1
+    - Position N: the final accumulator after all elements
+
+    Example with multiply and init=1 over (2, 3, 5):
+    - result = (1, 2, 6, 30)
+  }];
+
+  let arguments = (ins TupleLike:$input, AnyType:$init);
+  let results = (outs TupleLike:$result);
+  let regions = (region SizedRegion<1>:$body);
+
+  let extraClassDeclaration = [{
+    FailureOr<TupleType> getInputTupleTypeWithKnownArity(function_ref<InFlightDiagnostic()> errFn = nullptr) {
+      if (auto tt = dyn_cast<TupleType>(getInput().getType()))
+        return tt;
+      if (errFn) errFn() << "input tuple must be TupleType";
+      return failure();
+    }
+
+    std::optional<unsigned> getInputArity() {
+      auto maybeTupleTy = getInputTupleTypeWithKnownArity();
+      if (succeeded(maybeTupleTy)) return maybeTupleTy->size();
+      return std::nullopt;
+    }
+
+    LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
+    LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
+
+    bool inputTypeIsTupleType() {
+      return succeeded(getInputTupleTypeWithKnownArity());
+    }
+
+    YieldOp bodyYield();
+
+    FunctionType getBodyFunctionType();
+    FunctionType getFunctionTypeForIteration(unsigned i, Type accumulatorType);
+
+    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+        unsigned i,
+        Type accumulatorType,
+        function_ref<InFlightDiagnostic()> errFn = nullptr);
+
+    //===------------------------------------------------------------------===//
+    // OpAsmOpInterface Methods
+    //===------------------------------------------------------------------===//
+
+    /// Allow the dialect prefix to be omitted.
+    static StringRef getDefaultDialect() { return "tuple"; }
+  }];
+
+  let assemblyFormat = "$input `,` $init attr-dict `:` type($input) `,` type($init) `->` type($result) $body";
+  let hasVerifier = 1;
 }
 
 def FlattenOp : TupleOp<"flatten", [
@@ -256,9 +346,10 @@ def FlatMapOp : TupleOp<"flat_map", [
 
     // this method succeeds only when the input tuple is a concrete TupleType
     // element types of the input tuple are still allowed to be polymorphic
-    FailureOr<TupleType> getInputTupleTypeWithKnownArity() {
+    FailureOr<TupleType> getInputTupleTypeWithKnownArity(function_ref<InFlightDiagnostic()> errFn = nullptr) {
       if (auto tt = dyn_cast<TupleType>(getInput().getType()))
         return success(tt);
+      if (errFn) errFn() << "tuple must be TupleType";
       return failure();
     }
 
@@ -384,6 +475,37 @@ def GetOp : TupleOp<"get", [Pure]> {
   ];
 }
 
+def LastOp : TupleOp<"last", [
+  Pure,
+  ResultTypeSpecializationOpInterface
+]> {
+  let summary = "Extract the last element from a tuple";
+  let description = [{
+    Extracts the last element from a non-empty tuple.
+  }];
+
+  let arguments = (ins TupleLike:$input);
+  let results = (outs AnyType:$result);
+
+  let extraClassDeclaration = [{
+    static FailureOr<Type> inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
+    
+    // for ResultTypeSpecializationOpInterface
+    FailureOr<SmallVector<Type>> specializeResultTypes();
+  }];
+
+  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
+  let hasVerifier = 1;
+
+  let builders = [
+    OpBuilder<(ins "Value":$input), [{
+      auto maybeResTy = LastOp::inferResultType(input.getType());
+      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
+      build($_builder, $_state, resTy, input);
+    }]>
+  ];
+}
+
 def MakeOp : TupleOp<"make", [
   Pure,
   ResultTypeSpecializationOpInterface
@@ -494,7 +616,7 @@ def MapOp : TupleOp<"map", [
 }
 
 def YieldOp : TupleOp<"yield", [
-  ParentOneOf<["AllOp","FlatMapOp","FoldlOp","MapOp"]>,
+  ParentOneOf<["AllOp","ExclusiveScanOp","FlatMapOp","FoldlOp","MapOp"]>,
   Pure,
   ReturnLike,
   Terminator
