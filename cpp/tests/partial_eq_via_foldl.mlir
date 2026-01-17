@@ -33,11 +33,11 @@ trait.trait @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO,!MapPartialEqC] at
 }
 
 // this is the polymorphic tuple impl of PartialEq
-!TS = !tuple.poly<0>
-!TO = !tuple.poly<1>
-!TC = !tuple.poly<2>
-!ES = !trait.poly<5>
-!EO = !trait.poly<6>
+!TS = !tuple.poly<5>
+!TO = !tuple.poly<6>
+!TC = !tuple.poly<7>
+!ES = !trait.poly<8>
+!EO = !trait.poly<9>
 trait.impl @tuple.PartialEq for @PartialEq[!TS,!TO] where [
   @tuple.MapPartialEq[!TS,!TO,!TC]
 ] {

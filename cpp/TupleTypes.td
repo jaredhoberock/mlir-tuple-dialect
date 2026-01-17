@@ -32,12 +32,13 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
 
     // for GenericTypeInterface
     Type instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter);
+    Type specializeWith(const DenseMap<Type,Type> &subst) const;
 
     // for PolymorphicTypeInterface
     bool isPolymorphic() const { return true; }
   }];
 
-  let parameters = (ins "int":$unique_id);
+  let parameters = (ins "::mlir::trait::PolyType":$inner);
 
   let hasCustomAssemblyFormat = 1;
 }

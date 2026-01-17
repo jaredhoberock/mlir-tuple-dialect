@@ -25,13 +25,9 @@ void TupleDialect::registerTypes() {
 // PolyType
 //===----------------------------------------------------------------------===//
 
-static int nextPolyTypeId() {
-  static std::atomic<int> counter{-1};
-  return counter.fetch_sub(1, std::memory_order_relaxed);
-}
-
 PolyType PolyType::getUnique(MLIRContext* ctx) {
-  return PolyType::get(ctx, nextPolyTypeId());
+  trait::PolyType inner = trait::PolyType::getUnique(ctx);
+  return PolyType::get(ctx, inner);
 }
 
 Type PolyType::instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter) {
@@ -42,44 +38,55 @@ Type PolyType::instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter) {
   }
 
   // create and remember a fresh inference var for this poly
-  auto fresh = InferenceType::get(getContext(), idCounter++, getUniqueId());
+  auto fresh = InferenceType::get(getContext(), idCounter++, getInner().getUniqueId());
   inst[*this] = fresh;
   return fresh;
 }
 
+Type PolyType::specializeWith(const DenseMap<Type,Type> &subst) const {
+  // check if this type appears in the substitution
+  auto it = subst.find(*this);
+  if (it != subst.end())
+    return it->second;
+
+  // otherwise, specialize the inner type
+  trait::PolyType inner = getInner();
+  Type specialized = inner.specializeWith(subst);
+  if (specialized == inner)
+    return *this;
+
+  // if inner is still polymorphic, keep the result wrapped in tuple::PolyType 
+  if (auto poly = llvm::dyn_cast<trait::PolyType>(specialized))
+    return PolyType::get(getContext(), poly);
+
+  // the inner type specialized to something concrete, return it directly
+  return specialized;
+}
+
 Type PolyType::parse(AsmParser &parser) {
   MLIRContext *ctx = parser.getContext();
-  int uniqueId = 0;
+  
+  if (parser.parseLess())
+    return {};
 
-  // parse this:
-  // <unique> or
-  // <int>
-
-  if (parser.parseLess()) {
-    parser.emitError(parser.getNameLoc(), "expected '<'");
-    return Type();
-  }
-
+  trait::PolyType inner;
   if (succeeded(parser.parseOptionalKeyword("unique"))) {
-    uniqueId = nextPolyTypeId();
+    inner = trait::PolyType::getUnique(ctx);
   } else {
-    if (parser.parseInteger(uniqueId)) {
-      parser.emitError(parser.getNameLoc(), "expected integer or 'unique'");
-      return Type();
-    }
-    
+    int uniqueId;
+    if (parser.parseInteger(uniqueId))
+      return {};
+    inner = trait::PolyType::get(ctx, uniqueId);
   }
 
-  if (parser.parseGreater()) {
-    parser.emitError(parser.getNameLoc(), "expected '>'");
-    return Type();
-  }
+  if (parser.parseGreater())
+    return {};
 
-  return PolyType::get(ctx, uniqueId);
+  return PolyType::get(ctx, inner);
 }
 
 void PolyType::print(AsmPrinter &printer) const {
-  printer << "<" << getUniqueId() << ">";
+  printer << "<" << getInner().getUniqueId() << ">";
 }
 
 
