@@ -36,13 +36,9 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
 
     // handle empty tuples
     if (tupleTy.getTypes().empty()) {
-      auto emptyStructTy = LLVM::LLVMStructType::getLiteral(
-        rewriter.getContext(),
-        {}
-      );
-
-      Value emptyStruct = rewriter.create<LLVM::UndefOp>(loc, emptyStructTy);
-      rewriter.replaceOp(op, emptyStruct);
+      Type convertedTy = getTypeConverter()->convertType(tupleTy);
+      Value undefined = rewriter.create<LLVM::UndefOp>(loc, convertedTy);
+      rewriter.replaceOp(op, undefined);
       return success();
     }
 
@@ -70,6 +66,11 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
 void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
   // add a type conversion all TupleTypes to !llvm.struct
   typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
+    // lower tuple<> directly to i8
+    if (tupleTy.getTypes().empty()) {
+      return IntegerType::get(tupleTy.getContext(), 8);
+    }
+
     SmallVector<Type> elementTypes;
 
     // convert each element type

@@ -38,6 +38,7 @@ fn append_partial_eq_trait<'c>(
         loc,
         &[],
         &[],
+        &[],
         StringRef::new(source),
         block,
     ).expect("valid trait.trait");
@@ -60,6 +61,7 @@ fn append_partial_ord_trait<'c>(
         loc,
         &[],
         &[],
+        &[],
         StringRef::new(source),
         block,
     ).expect("valid trait.trait");
@@ -80,6 +82,7 @@ fn append_partial_eq_i32_impl<'c>(
 
     inline::parse_source_into_block(
         loc,
+        &[],
         &[],
         &[],
         StringRef::new(source),
@@ -114,6 +117,7 @@ fn append_partial_ord_i32_impl<'c>(
 
     inline::parse_source_into_block(
         loc,
+        &[],
         &[],
         &[],
         StringRef::new(source),
@@ -249,6 +253,7 @@ fn append_test2_func<'c>(
 
     inline::parse_source_into_block(
         loc,
+        &[],
         &[],
         &[],
         StringRef::new(source),
