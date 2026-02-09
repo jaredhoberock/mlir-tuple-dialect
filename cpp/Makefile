@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-License-Identifier: Apache-2.0
 LLVM_BIN_PATH = $(HOME)/dev/git/llvm-project-20/build/bin
 
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config

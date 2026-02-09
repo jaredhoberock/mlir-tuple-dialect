@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+// SPDX-License-Identifier: Apache-2.0
 #ifndef TUPLE_ENUMS_TD
 #define TUPLE_ENUMS_TD
 

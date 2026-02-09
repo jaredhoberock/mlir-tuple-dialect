@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+// SPDX-License-Identifier: Apache-2.0
 #include "Canonicalization.hpp"
 #include "Monomorphization.hpp"
 #include "Tuple.hpp"

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
+// SPDX-License-Identifier: Apache-2.0
 use melior::{ir::{Location, Value, ValueLike, Operation}, Context};
 use mlir_sys::{MlirContext, MlirLocation, MlirOperation, MlirValue};
 
