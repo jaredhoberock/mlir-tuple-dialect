@@ -48,7 +48,6 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
 // Represents an inference variable used during type inference
 def InferenceType : TypeDef<TupleDialect, "Inference", [
   PolymorphicTypeInterface,
-  TypeVariableInterface,
   UnificationTypeInterface
 ]> {
   let mnemonic = "infer";
