@@ -104,7 +104,7 @@ LogicalResult InferenceType::unify(
   Type self = *this;
 
   // normalize
-  other = trait::applySubstitution(subst, other);
+  other = trait::applySubstitutionToFixedPoint(subst, other);
 
   // first check for trivial equality
   if (self == other) return success();

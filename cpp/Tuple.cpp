@@ -41,9 +41,10 @@ struct MonomorphizationInterface : public trait::MonomorphizationInterface {
     tuple::populateInstantiateMonomorphsPatterns(patterns);
   }
 
-  void populateEraseClaimsPatterns(TypeConverter &typeConverter,
-                                   RewritePatternSet &patterns) const override final {
-    tuple::populateEraseClaimsPatterns(typeConverter, patterns);
+  void populateErasePolymorphsPatterns(TypeConverter &typeConverter,
+                                      RewritePatternSet &patterns,
+                                      AttrTypeReplacer &) const override final {
+    tuple::populateErasePolymorphsPatterns(typeConverter, patterns);
   }
 };
 

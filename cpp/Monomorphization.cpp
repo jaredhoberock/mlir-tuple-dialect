@@ -36,8 +36,8 @@ namespace mlir::tuple {
 ///    Includes in-dialect elaboration patterns because instantiation may reveal
 ///    more tuple structure to rewrite.
 ///
-/// 4. populateEraseClaimsPatterns
-///    ----------------------------
+/// 4. populateErasePolymorphsPatterns
+///    --------------------------------
 ///    Cooperates with a TypeConverter to remove `!trait.claim` types from the IR
 ///    after trait reasoning is complete. Adjusts tuple IR (indices, make ops,
 ///    etc.) to account for elements that are erased or expanded.
@@ -931,7 +931,7 @@ void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
 
 
 //===----------------------------------------------------------------------===//
-// populateEraseClaimsPatterns
+// populateErasePolymorphsPatterns
 //===----------------------------------------------------------------------===//
 
 struct EraseClaimsFromGetOp : OpConversionPattern<GetOp> {
@@ -1045,7 +1045,7 @@ struct EraseClaimsFromMakeOp : ConversionPattern {
 ///
 /// After this phase, there should be no `!trait.claim` types remaining in
 /// tuple element types or in SSA value types.
-void populateEraseClaimsPatterns(TypeConverter& converter, RewritePatternSet& patterns) {
+void populateErasePolymorphsPatterns(TypeConverter& converter, RewritePatternSet& patterns) {
   // teach the TypeConverter how to rewrite TupleType by recursively applying
   // the element conversion (including erasing elements that convert to 0 pieces)
   converter.addConversion([&](TupleType tup) -> std::optional<Type> {
