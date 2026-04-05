@@ -8,6 +8,7 @@ use melior::{
         attribute::{IntegerAttribute, StringAttribute, TypeAttribute},
         Attribute,
         r#type::{FunctionType, IntegerType},
+        operation::{OperationLike, OperationMutLike},
         Block, BlockLike, Location, Module, Operation, Region, RegionLike,
     },
     StringRef,
@@ -43,6 +44,7 @@ fn append_partial_eq_trait<'c>(
         &[],
         StringRef::new(source),
         block,
+        true,
     ).expect("valid trait.trait");
 }
 
@@ -66,6 +68,7 @@ fn append_partial_ord_trait<'c>(
         &[],
         StringRef::new(source),
         block,
+        true,
     ).expect("valid trait.trait");
 }
 
@@ -89,6 +92,7 @@ fn append_partial_eq_i32_impl<'c>(
         &[],
         StringRef::new(source),
         block,
+        true,
     ).expect("valid trait.impl");
 }
 
@@ -124,6 +128,7 @@ fn append_partial_ord_i32_impl<'c>(
         &[],
         StringRef::new(source),
         block,
+        true,
     ).expect("valid trait.impl");
 }
 
@@ -260,6 +265,7 @@ fn append_test2_func<'c>(
         &[],
         StringRef::new(source),
         block,
+        true,
     ).expect("valid func.func");
 }
 
@@ -305,7 +311,7 @@ fn test_tuple_jit() {
     assert!(pass_manager.run(&mut module).is_ok());
 
     // JIT compile the module
-    let engine = ExecutionEngine::new(&module, 0, &[], false);
+    let engine = ExecutionEngine::new(&module, 0, &[], false, false);
 
     // test 1
     unsafe {

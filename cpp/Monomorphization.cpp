@@ -97,7 +97,7 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     Type O = trait::PolyType::getUnique(ctx);
     Type C = trait::PolyType::getUnique(ctx);
     
-    auto trait = rewriter.create<trait::TraitOp>(
+    auto trait = trait::TraitOp::create(rewriter, 
       loc,
       StringAttr::get(ctx, name),
       /*typeParams=*/ArrayRef{S, O, C},
@@ -118,7 +118,7 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
         /*results=*/C
       );
 
-      auto claimsFn = rewriter.create<func::FuncOp>(
+      auto claimsFn = func::FuncOp::create(rewriter, 
         loc,
         "claims",
         claimsTy
@@ -163,12 +163,12 @@ struct CmpOpMonoSynthesizeClaims : OpRewritePattern<CmpOp> {
       auto app = trait::TraitApplicationAttr::get(ctx, traitRef, {Li,Ri});
 
       // %ci = trait.allege @Trait[Li,Ri]
-      Value ci = rewriter.create<trait::AllegeOp>(loc, app);
+      Value ci = trait::AllegeOp::create(rewriter, loc, app);
       claimElems.push_back(ci);
     }
 
     // %claims = tuple.make (c1..ck)
-    Value claimsTuple = rewriter.create<MakeOp>(loc,claimElems);
+    Value claimsTuple = MakeOp::create(rewriter, loc,claimElems);
 
     // re-emit the tuple.cmp op with the new claims operand
     rewriter.replaceOpWithNewOp<CmpOp>(
@@ -218,11 +218,11 @@ struct AllOpLowering : OpRewritePattern<AllOp> {
     }
 
     // build init = true and create tuple.foldl over the input tuple
-    Value init = rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
+    Value init = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
 
     // tuple.foldl expects: result type, init, inputs...
     // our single input is the tuple being tested by tuple.all
-    auto fold = rewriter.create<FoldlOp>(
+    auto fold = FoldlOp::create(rewriter, 
       loc,
       /*resultTy=*/i1Ty,
       init,
@@ -250,7 +250,7 @@ struct AllOpLowering : OpRewritePattern<AllOp> {
       Value pred = oldYield.getOperand();
 
       rewriter.setInsertionPoint(oldYield);
-      Value both = rewriter.create<arith::AndIOp>(loc, newBody->getArgument(0), pred);
+      Value both = arith::AndIOp::create(rewriter, loc, newBody->getArgument(0), pred);
 
       // Replace yield with a fresh yield of %both
       rewriter.replaceOpWithNewOp<tuple::YieldOp>(oldYield, both);
@@ -280,7 +280,7 @@ struct AppendOpLowering : OpRewritePattern<AppendOp> {
     elems.reserve(arity + 1);
 
     for (unsigned i = 0; i < arity; ++i) {
-      elems.push_back(rewriter.create<GetOp>(loc, op.getTuple(), i));
+      elems.push_back(GetOp::create(rewriter, loc, op.getTuple(), i));
     }
     elems.push_back(op.getElement());
 
@@ -308,7 +308,7 @@ struct CatOpLowering : OpRewritePattern<CatOp> {
     // emit gets for lhs elements
     for (unsigned i = 0, e = lhsTT.size(); i < e; ++i) {
       Type elemTy = lhsTT.getType(i);
-      elems.push_back(rewriter.create<GetOp>(
+      elems.push_back(GetOp::create(rewriter, 
         loc,
         elemTy,
         op.getLhs(),
@@ -319,7 +319,7 @@ struct CatOpLowering : OpRewritePattern<CatOp> {
     // emit gets for rhs elements
     for (unsigned i = 0, e = rhsTT.size(); i < e; ++i) {
       Type elemTy = rhsTT.getType(i);
-      elems.push_back(rewriter.create<GetOp>(
+      elems.push_back(GetOp::create(rewriter, 
         loc,
         elemTy,
         op.getRhs(),
@@ -364,13 +364,13 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
     auto i1Ty = rewriter.getI1Type();
 
     // init accumulator: true for eq, false for ne
-    Value init = rewriter.create<arith::ConstantOp>(
+    Value init = arith::ConstantOp::create(rewriter, 
       loc,
       rewriter.getBoolAttr(method == "eq")
     );
 
     SmallVector<Value,3> inputs{op.getLhs(), op.getRhs(), claims};
-    auto fold = rewriter.create<FoldlOp>(loc, i1Ty, init, inputs);
+    auto fold = FoldlOp::create(rewriter, loc, i1Ty, init, inputs);
 
     // build the body:
     //
@@ -396,7 +396,7 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
       Value ci = body->getArgument(3);
 
       // call the method requested by the tuple.cmp
-      Value callRes = rewriter.create<trait::MethodCallOp>(
+      Value callRes = trait::MethodCallOp::create(rewriter, 
         loc, i1Ty,
         op.getTraitName(),
         method,
@@ -406,10 +406,10 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
 
       // fold: eq -> AND; ne -> OR
       Value resi = (method == "eq")
-        ? (Value)rewriter.create<arith::AndIOp>(loc, acc, callRes)
-        : (Value)rewriter.create<arith::OrIOp>(loc, acc, callRes);
+        ? (Value)arith::AndIOp::create(rewriter, loc, acc, callRes)
+        : (Value)arith::OrIOp::create(rewriter, loc, acc, callRes);
 
-      rewriter.create<YieldOp>(loc, resi);
+      YieldOp::create(rewriter, loc, resi);
     }
 
     rewriter.replaceOp(op, fold.getResult());
@@ -455,13 +455,13 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
     TupleType accTy = TupleType::get(ctx, {i1, i1}); // (res, allEq)
 
     // init: (res=false, allEq=true)
-    Value cFalse = rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(false));
-    Value cTrue  = rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
-    Value init   = rewriter.create<MakeOp>(loc, accTy, ValueRange{cFalse, cTrue});
+    Value cFalse = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(false));
+    Value cTrue  = arith::ConstantOp::create(rewriter, loc, rewriter.getBoolAttr(true));
+    Value init   = MakeOp::create(rewriter, loc, accTy, ValueRange{cFalse, cTrue});
 
     // build foldl over (lhs, rhs, claims)
     SmallVector<Value,3> inputs{op.getLhs(), op.getRhs(), claims};
-    auto fold = rewriter.create<FoldlOp>(loc, accTy, init, inputs);
+    auto fold = FoldlOp::create(rewriter, loc, accTy, init, inputs);
 
     // Body:
     //
@@ -511,34 +511,34 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
       Value ri = body->getArgument(2);
       Value ci = body->getArgument(3);
 
-      Value res   = rewriter.create<GetOp>(loc, i1, acc, rewriter.getIndexAttr(0));
-      Value allEq = rewriter.create<GetOp>(loc, i1, acc, rewriter.getIndexAttr(1));
+      Value res   = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(0));
+      Value allEq = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(1));
 
-      Value lt_i = rewriter.create<trait::MethodCallOp>(
+      Value lt_i = trait::MethodCallOp::create(rewriter, 
         loc, i1, "PartialOrd", "lt", ci, ValueRange{li, ri}).getResult(0);
-      Value gt_i = rewriter.create<trait::MethodCallOp>(
+      Value gt_i = trait::MethodCallOp::create(rewriter, 
         loc, i1, "PartialOrd", "gt", ci, ValueRange{li, ri}).getResult(0);
 
-      Value either = rewriter.create<arith::OrIOp>(loc, lt_i, gt_i);
-      Value eq_i   = rewriter.create<arith::XOrIOp>(loc, either, cTrue);
+      Value either = arith::OrIOp::create(rewriter, loc, lt_i, gt_i);
+      Value eq_i   = arith::XOrIOp::create(rewriter, loc, either, cTrue);
 
       Value strict = isLtLe ? lt_i : gt_i;
 
-      Value contrib     = rewriter.create<arith::AndIOp>(loc, allEq, strict);
-      Value res_next    = rewriter.create<arith::OrIOp>(loc, res, contrib);
-      Value all_eq_next = rewriter.create<arith::AndIOp>(loc, allEq, eq_i);
+      Value contrib     = arith::AndIOp::create(rewriter, loc, allEq, strict);
+      Value res_next    = arith::OrIOp::create(rewriter, loc, res, contrib);
+      Value all_eq_next = arith::AndIOp::create(rewriter, loc, allEq, eq_i);
 
-      Value acc_next = rewriter.create<MakeOp>(loc, accTy, ValueRange{res_next, all_eq_next});
-      rewriter.create<YieldOp>(loc, acc_next);
+      Value acc_next = MakeOp::create(rewriter, loc, accTy, ValueRange{res_next, all_eq_next});
+      YieldOp::create(rewriter, loc, acc_next);
     }
 
     // finalize:
     // lt/gt -> finalRes = res
     // le/ge -> finalRes = res || allEq
-    Value finalRes = rewriter.create<GetOp>(loc, i1, fold.getResult(), rewriter.getIndexAttr(0));
+    Value finalRes = GetOp::create(rewriter, loc, i1, fold.getResult(), rewriter.getIndexAttr(0));
     if (!isStrict) {
-      Value finalAllEq = rewriter.create<GetOp>(loc, i1, fold.getResult(), rewriter.getIndexAttr(1));
-      finalRes = rewriter.create<arith::OrIOp>(loc, finalRes, finalAllEq);
+      Value finalAllEq = GetOp::create(rewriter, loc, i1, fold.getResult(), rewriter.getIndexAttr(1));
+      finalRes = arith::OrIOp::create(rewriter, loc, finalRes, finalAllEq);
     }
 
     rewriter.replaceOp(op, finalRes);
@@ -564,7 +564,7 @@ struct DropLastOpLowering : OpRewritePattern<DropLastOp> {
     elems.reserve(arity - 1);
 
     for (unsigned i = 0; i < arity - 1; ++i) {
-      elems.push_back(rewriter.create<GetOp>(loc, op.getInput(), i));
+      elems.push_back(GetOp::create(rewriter, loc, op.getInput(), i));
     }
 
     rewriter.replaceOpWithNewOp<MakeOp>(op, elems);
@@ -603,9 +603,9 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
     MLIRContext *ctx = op.getContext();
 
     // initial value of the prefix state: (init)
-    auto first = rewriter.create<MakeOp>(loc, ValueRange{op.getInit()});
+    auto first = MakeOp::create(rewriter, loc, ValueRange{op.getInit()});
 
-    auto fold = rewriter.create<FoldlOp>(
+    auto fold = FoldlOp::create(rewriter, 
         loc,
         /*resultTy=*/op.getResult().getType(),
         /*init=*/first,
@@ -632,7 +632,7 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
 
       // %acc = tuple.last %prev : !P -> !A
       rewriter.setInsertionPointToStart(newBody);
-      Value acc = rewriter.create<LastOp>(loc, prev);
+      Value acc = LastOp::create(rewriter, loc, prev);
 
       // inline the original body, remapping:
       // old %acc -> %acc
@@ -649,7 +649,7 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
 
       // %next = tuple.append %prev, %yielded : !P, !Y -> !N
       rewriter.setInsertionPoint(oldYield);
-      Value next = rewriter.create<AppendOp>(loc, prev, yielded);
+      Value next = AppendOp::create(rewriter, loc, prev, yielded);
 
       // yield %next : !N
       rewriter.replaceOpWithNewOp<YieldOp>(oldYield, next);
@@ -674,7 +674,7 @@ struct FlatMapOpLowering : public OpRewritePattern<FlatMapOp> {
     Location loc = op.getLoc();
 
     // create tuple.map with the same body as the tuple.flat_map
-    auto mapOp = rewriter.create<MapOp>(loc, *mapResultTy, ValueRange{op.getInput()});
+    auto mapOp = MapOp::create(rewriter, loc, *mapResultTy, ValueRange{op.getInput()});
     {
       // inline the flat_map's body into the new map op
       Region &oldBody = op.getBody();
@@ -753,7 +753,7 @@ struct FoldlOpInstantiation : public OpRewritePattern<FoldlOp> {
 
       // collect the ith element from each input tuple
       for (Value tuple : op.getInputs())
-        args.push_back(rewriter.create<GetOp>(loc, tuple, i));
+        args.push_back(GetOp::create(rewriter, loc, tuple, i));
 
       // build the type substitution for this iteration
       DenseMap<Type,Type> subst = op.buildSubstitutionForIteration(i, previousResult.getType());
@@ -812,11 +812,11 @@ struct FlattenOpInstantiation : public OpRewritePattern<FlattenOp> {
             op, "element of input tuple is not a concrete TupleType");
 
       // %inner = tuple.get %input, outerIdx
-      Value inner = rewriter.create<GetOp>(loc, input, outerIdx);
+      Value inner = GetOp::create(rewriter, loc, input, outerIdx);
 
       // extract each element of the inner tuple and append to flatElems
       for (unsigned j = 0; j < innerTT.size(); ++j) {
-        flatElems.push_back(rewriter.create<GetOp>(loc, inner, j));
+        flatElems.push_back(GetOp::create(rewriter, loc, inner, j));
       }
     }
 
@@ -896,7 +896,7 @@ struct MapOpInstantiation : public OpRewritePattern<MapOp> {
       SmallVector<Value> args;
       args.reserve(op.getInputs().size());
       for (Value tup : op.getInputs()) {
-        args.push_back(rewriter.create<GetOp>(loc, tup, i));
+        args.push_back(GetOp::create(rewriter, loc, tup, i));
       }
 
       // instantiate and inline one iteration of the body

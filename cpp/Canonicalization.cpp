@@ -93,7 +93,7 @@ struct CatOpCanonicalization : public OpRewritePattern<CatOp> {
       Value a = innerCat.getLhs();
       Value b = innerCat.getRhs();
 
-      auto bc = rewriter.create<CatOp>(op.getLoc(), b, rhs);
+      auto bc = CatOp::create(rewriter, op.getLoc(), b, rhs);
       rewriter.replaceOpWithNewOp<CatOp>(op, a, bc.getResult());
       return success();
     }

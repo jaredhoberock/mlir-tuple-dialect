@@ -39,7 +39,7 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
     // handle empty tuples
     if (tupleTy.getTypes().empty()) {
       Type convertedTy = getTypeConverter()->convertType(tupleTy);
-      Value undefined = rewriter.create<LLVM::UndefOp>(loc, convertedTy);
+      Value undefined = LLVM::UndefOp::create(rewriter, loc, convertedTy);
       rewriter.replaceOp(op, undefined);
       return success();
     }
@@ -48,11 +48,11 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
     auto structTy = cast<LLVM::LLVMStructType>(getTypeConverter()->convertType(tupleTy));
 
     // start with an undefined struct
-    Value result = rewriter.create<LLVM::UndefOp>(loc, structTy);
+    Value result = LLVM::UndefOp::create(rewriter, loc, structTy);
 
     // insert each operand into the struct
     for (auto [idx, operand] : llvm::enumerate(adaptor.getOperands())) {
-      result = rewriter.create<LLVM::InsertValueOp>(
+      result = LLVM::InsertValueOp::create(rewriter, 
         loc,
         result,
         operand,

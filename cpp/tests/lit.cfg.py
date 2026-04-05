@@ -11,4 +11,6 @@ config.test_source_root = os.path.dirname(__file__)
 tuple_plugin_path = os.path.join(os.path.dirname(__file__), '..', 'libtuple_dialect.so')
 trait_plugin_path = os.path.join(os.path.dirname(__file__), '../../../mlir-trait-dialect/cpp', 'libtrait_dialect.so')
 
-config.substitutions.append(('mlir-opt', f'mlir-opt --load-dialect-plugin={trait_plugin_path} --load-dialect-plugin={tuple_plugin_path}'))
+llvm_bin = os.path.join(os.path.expanduser('~'), 'dev/git/llvm-project-22/build/bin')
+mlir_opt = os.path.join(llvm_bin, 'mlir-opt')
+config.substitutions.append(('mlir-opt', f'{mlir_opt} --load-dialect-plugin={trait_plugin_path} --load-dialect-plugin={tuple_plugin_path}'))

@@ -192,7 +192,7 @@ struct MapGenerator : trait::ImplGenerator {
 
     OpBuilder::InsertionGuard guard(rewriter);
     rewriter.setInsertionPointToEnd(module.getBody());
-    ImplOp impl = rewriter.create<ImplOp>(
+    ImplOp impl = ImplOp::create(rewriter, 
       loc,
       StringAttr::get(ctx, name),
       ourClaim.getTraitApplication(),
@@ -213,7 +213,7 @@ struct MapGenerator : trait::ImplGenerator {
 
       // func.func private @claims() -> tupleOfClaims
       FunctionType claimsFnTy = FunctionType::get(ctx, {}, tupleOfClaims);
-      auto claimsFunc = rewriter.create<func::FuncOp>(
+      auto claimsFunc = func::FuncOp::create(rewriter, 
         loc,
         "claims",
         claimsFnTy
@@ -227,15 +227,15 @@ struct MapGenerator : trait::ImplGenerator {
       // emit trait.assume for each type in the tuple of claims type
       SmallVector<Value> elements;
       for (ClaimType c : claims) {
-        auto assume = rewriter.create<AssumeOp>(loc, c);
+        auto assume = AssumeOp::create(rewriter, loc, c);
         elements.push_back(assume.getResult());
       }
 
       // tuple.make of all claims
-      auto result = rewriter.create<MakeOp>(loc, elements);
+      auto result = MakeOp::create(rewriter, loc, elements);
 
       // return
-      rewriter.create<func::ReturnOp>(loc, result.getResult());
+      func::ReturnOp::create(rewriter, loc, result.getResult());
     }
 
     return impl;
@@ -304,7 +304,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 
     // create impl
     Location loc = rewriter.getUnknownLoc();
-    auto impl = rewriter.create<ImplOp>(
+    auto impl = ImplOp::create(rewriter, 
       loc,
       implName,
       ourClaim.getTraitApplication(),
@@ -318,7 +318,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 
       auto i1 = rewriter.getI1Type();
       auto eqTy = rewriter.getFunctionType({S,O}, i1);
-      auto eqFn = rewriter.create<func::FuncOp>(loc, "eq", eqTy);
+      auto eqFn = func::FuncOp::create(rewriter, loc, "eq", eqTy);
       eqFn.setPrivate();
 
       Block *entry = eqFn.addEntryBlock();
@@ -327,10 +327,10 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
       Value other = entry->getArgument(1);
 
       // %a = trait.assume @tuple.MapPartialEq[!S,!O,!C]
-      Value a = rewriter.create<AssumeOp>(loc, assumption);
+      Value a = AssumeOp::create(rewriter, loc, assumption);
 
       // %claims = trait.method.call %a @tuple.MapPartialEq[!S,!O,!C]::@claims() : () -> !C
-      Value claims = rewriter.create<MethodCallOp>(
+      Value claims = MethodCallOp::create(rewriter, 
         loc,
         /*results=*/TypeRange{C},
         /*traitName=*/"tuple.MapPartialEq",
@@ -340,14 +340,14 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
       ).getResult(0);
 
       // %res = tuple.cmp eq, %self, %other, %claims : !S, !O, !C
-      Value res = rewriter.create<CmpOp>(
+      Value res = CmpOp::create(rewriter, 
         loc,
         CmpPredicate::eq,
         self, other, claims
       );
 
       // return %res : i1
-      rewriter.create<func::ReturnOp>(loc, res);
+      func::ReturnOp::create(rewriter, loc, res);
     }
 
     return impl;
@@ -411,7 +411,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
     // create the impl op
     Location loc = rewriter.getUnknownLoc();
-    auto impl = rewriter.create<ImplOp>(
+    auto impl = ImplOp::create(rewriter, 
       loc,
       implName,
       ourClaim.getTraitApplication(),
@@ -427,7 +427,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
       auto i1 = rewriter.getI1Type();
       auto fnTy = rewriter.getFunctionType({S,O}, i1);
-      auto fn = rewriter.create<func::FuncOp>(loc, methodName, fnTy);
+      auto fn = func::FuncOp::create(rewriter, loc, methodName, fnTy);
       fn.setPrivate();
 
       Block *entry = fn.addEntryBlock();
@@ -436,10 +436,10 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
       Value other = entry->getArgument(1);
 
       // %a = trait.assume @tuple.MapPartialOrd[!S,!O,!C]
-      Value a = rewriter.create<AssumeOp>(loc, assumption);
+      Value a = AssumeOp::create(rewriter, loc, assumption);
 
       // %claims = trait.method.call %a @tuple.MapPartialOrd[!S,!O,!C]::@claims() : () -> !C
-      Value claims = rewriter.create<MethodCallOp>(
+      Value claims = MethodCallOp::create(rewriter, 
         loc,
         /*results=*/TypeRange{C},
         /*traitName=*/"tuple.MapPartialOrd",
@@ -449,10 +449,10 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
       ).getResult(0);
 
       // %res = tuple.cmp <pred>, %self, %other, %claims : !S, !O, !C
-      Value res = rewriter.create<CmpOp>(loc, pred, self, other, claims);
+      Value res = CmpOp::create(rewriter, loc, pred, self, other, claims);
 
       // return %res : i1
-      rewriter.create<func::ReturnOp>(loc, res);
+      func::ReturnOp::create(rewriter, loc, res);
     };
 
     // define all four methods

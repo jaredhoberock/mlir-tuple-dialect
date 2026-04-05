@@ -24,7 +24,7 @@ MlirOperation tupleMakeOpCreate(MlirLocation loc, MlirValue* elements, intptr_t 
   for (intptr_t i = 0; i < nElements; ++i)
     elementVals.push_back(unwrap(elements[i]));
 
-  auto op = builder.create<MakeOp>(
+  auto op = MakeOp::create(builder, 
       unwrap(loc),
       elementVals
   );
@@ -35,7 +35,7 @@ MlirOperation tupleGetOpCreate(MlirLocation loc, MlirValue tuple, int64_t index)
   MLIRContext* ctx = unwrap(loc)->getContext();
 
   OpBuilder builder(ctx);
-  auto op = builder.create<GetOp>(
+  auto op = GetOp::create(builder, 
     unwrap(loc),
     unwrap(tuple),
     index
@@ -55,8 +55,8 @@ MlirOperation tupleCmpOpCreate(MlirLocation loc,
   auto cppPredicate = static_cast<tuple::CmpPredicate>(predicate);
 
   auto op = mlirValueIsNull(claims)
-    ? builder.create<CmpOp>(unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs))
-    : builder.create<CmpOp>(unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs), unwrap(claims));
+    ? CmpOp::create(builder, unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs))
+    : CmpOp::create(builder, unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs), unwrap(claims));
 
   return wrap(op.getOperation());
 }
