@@ -19,7 +19,7 @@ TRAIT_DIALECT_INCLUDE = $(HOME)/dev/git/mlir-trait-dialect/cpp
 INCLUDES := -I $(MLIR_INCLUDE) -I $(TRAIT_DIALECT_INCLUDE)
 
 # Dialect library sources
-DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
 DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
 
 # Generated files

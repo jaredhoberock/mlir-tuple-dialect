@@ -4,38 +4,8 @@
 // RUN: mlir-opt %s -split-input-file --pass-pipeline="builtin.module(monomorphize-trait)" | FileCheck %s
 
 // -----
-// single i64
-
-// CHECK-LABEL: func @map_i64_to_f32
-// CHECK: tuple.get %arg0, 0
-// CHECK: tuple.make
-func.func @map_i64_to_f32(%arg0: tuple<i64>) -> tuple<f32> {
-  %res = tuple.map %arg0 : tuple<i64> -> tuple<f32> {
-  ^bb0(%x: i64):
-    %res = arith.sitofp %x : i64 to f32
-    yield %res : f32
-  }
-  return %res : tuple<f32>
-}
-
-// -----
-// pair of i64
-
-// CHECK-LABEL: func @map_i64_i64_to_f32_f32
-// CHECK: tuple.get %arg0, 0
-// CHECK: tuple.get %arg0, 1
-// CHECK: tuple.make
-func.func @map_i64_i64_to_f32_f32(%arg0: tuple<i64,i64>) -> tuple<f32,f32> {
-  %res = tuple.map %arg0 : tuple<i64,i64> -> tuple<f32,f32> {
-  ^bb0(%x: i64):
-    %res = arith.sitofp %x : i64 to f32
-    yield %res : f32
-  }
-  return %res : tuple<f32,f32>
-}
-
-// -----
-// call a method
+// call a method — exercises trait claim resolution, impl dispatch, and
+// instantiation of a distinct callee per element type (i32 vs f32).
 
 !S = !trait.poly<0>
 trait.trait @Id[!S] {
@@ -55,9 +25,16 @@ trait.impl for @Id[f32] {
 }
 
 // CHECK-LABEL: func @map_id_i32_f32
-// CHECK: tuple.get %arg0, 0
-// CHECK: tuple.get %arg0, 1
-// CHECK: tuple.make
+// CHECK-NOT: tuple.map
+// CHECK-NOT: trait.method.call
+// CHECK-NOT: trait.allege
+// CHECK-NOT: !trait.
+// CHECK: %[[E0:.+]] = tuple.get %arg0, 0 : tuple<i32, f32> -> i32
+// CHECK: %[[C0:.+]] = call @{{.+}}(%[[E0]]) : (i32) -> i32
+// CHECK: %[[E1:.+]] = tuple.get %arg0, 1 : tuple<i32, f32> -> f32
+// CHECK: %[[C1:.+]] = call @{{.+}}(%[[E1]]) : (f32) -> f32
+// CHECK: %[[M:.+]] = tuple.make(%[[C0]], %[[C1]] : i32, f32) : tuple<i32, f32>
+// CHECK: return %[[M]] : tuple<i32, f32>
 !X = !trait.poly<1>
 func.func @map_id_i32_f32(%arg0: tuple<i32,f32>) -> tuple<i32,f32> {
   %c0 = trait.allege @Id[i32]

@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: mlir-opt --pass-pipeline="builtin.module(monomorphize-trait)" %s | FileCheck %s
+// RUN: mlir-opt --pass-pipeline="builtin.module(tuple-elaborate)" %s | FileCheck %s
 
 // -----
 // Both empty -> single empty make
 // CHECK-LABEL: func.func @cat_both_empty
+// CHECK-NOT: tuple.cat
 // CHECK: %[[M0:.+]] = tuple.make : tuple<>
 // CHECK: return %[[M0]] : tuple<>
 func.func @cat_both_empty(%a : tuple<>, %b : tuple<>) -> tuple<> {
@@ -16,6 +17,7 @@ func.func @cat_both_empty(%a : tuple<>, %b : tuple<>) -> tuple<> {
 // -----
 // Left empty -> picks rhs elements in order
 // CHECK-LABEL: func.func @cat_left_empty
+// CHECK-NOT: tuple.cat
 // CHECK: %[[G0:.+]] = tuple.get %arg1, 0 : tuple<i32> -> i32
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]] : i32) : tuple<i32>
 // CHECK: return %[[M0]] : tuple<i32>
@@ -27,6 +29,7 @@ func.func @cat_left_empty(%a : tuple<>, %b : tuple<i32>) -> tuple<i32> {
 // -----
 // Right empty -> keeps lhs elements in order
 // CHECK-LABEL: func.func @cat_right_empty
+// CHECK-NOT: tuple.cat
 // CHECK: %[[L0:.+]] = tuple.get %arg0, 0 : tuple<i64, i64> -> i64
 // CHECK: %[[L1:.+]] = tuple.get %arg0, 1 : tuple<i64, i64> -> i64
 // CHECK: %[[M0:.+]] = tuple.make(%[[L0]], %[[L1]] : i64, i64) : tuple<i64, i64>
@@ -39,6 +42,7 @@ func.func @cat_right_empty(%a : tuple<i64,i64>, %b : tuple<>) -> tuple<i64,i64> 
 // -----
 // Flat concat: (i32, i64) ++ (i8) -> (i32, i64, i8)
 // CHECK-LABEL: func.func @cat_flat_2_plus_1
+// CHECK-NOT: tuple.cat
 // CHECK: %[[A0:.+]] = tuple.get %arg0, 0 : tuple<i32, i64> -> i32
 // CHECK: %[[A1:.+]] = tuple.get %arg0, 1 : tuple<i32, i64> -> i64
 // CHECK: %[[B0:.+]] = tuple.get %arg1, 0 : tuple<i8> -> i8
@@ -53,6 +57,7 @@ func.func @cat_flat_2_plus_1(%a : tuple<i32,i64>, %b : tuple<i8>) -> tuple<i32,i
 // Nested on the left: (i32, tuple<i64, i8>) ++ (i1) -> (i32, tuple<i64, i8>, i1)
 // (Note: the nested tuple is kept as a single element; no extra decomposition.)
 // CHECK-LABEL: func.func @cat_nested_left
+// CHECK-NOT: tuple.cat
 // CHECK: %[[X0:.+]] = tuple.get %arg0, 0 : tuple<i32, tuple<i64, i8>> -> i32
 // CHECK: %[[X1:.+]] = tuple.get %arg0, 1 : tuple<i32, tuple<i64, i8>> -> tuple<i64, i8>
 // CHECK: %[[Y0:.+]] = tuple.get %arg1, 0 : tuple<i1> -> i1
@@ -67,6 +72,7 @@ func.func @cat_nested_left(%a : tuple<i32, tuple<i64,i8>>, %b : tuple<i1>)
 // -----
 // (i32) ++ ((i64) ++ (i8)) -> (i32,i64,i8)
 // CHECK-LABEL: func.func @cat_nested_right
+// CHECK-NOT: tuple.cat
 // get pieces for inner cat
 // CHECK: %[[B0:.+]] = tuple.get %arg1, 0 : tuple<i64> -> i64
 // CHECK: %[[C0:.+]] = tuple.get %arg2, 0 : tuple<i8> -> i8
@@ -89,6 +95,7 @@ func.func @cat_nested_right(%a: tuple<i32>, %b: tuple<i64>, %c: tuple<i8>) -> tu
 // -----
 // (tuple<i8,i8>, i32) ++ (i64, tuple<i1>) -> (tuple<i8,i8>, i32, i64, tuple<i1>)
 // CHECK-LABEL: func.func @cat_both_nested
+// CHECK-NOT: tuple.cat
 // CHECK: %[[L0:.+]] = tuple.get %arg0, 0 : tuple<tuple<i8, i8>, i32> -> tuple<i8, i8>
 // CHECK: %[[L1:.+]] = tuple.get %arg0, 1 : tuple<tuple<i8, i8>, i32> -> i32
 // CHECK: %[[R0:.+]] = tuple.get %arg1, 0 : tuple<i64, tuple<i1>> -> i64
@@ -105,6 +112,7 @@ func.func @cat_both_nested(%a: tuple<tuple<i8,i8>, i32>,
 // -----
 // (tuple<>, i32) ++ (tuple<>) -> (tuple<>, i32, tuple<>)
 // CHECK-LABEL: func.func @cat_preserve_empty_elements
+// CHECK-NOT: tuple.cat
 // CHECK: %[[L0:.+]] = tuple.get %arg0, 0 : tuple<tuple<>, i32> -> tuple<>
 // CHECK: %[[L1:.+]] = tuple.get %arg0, 1 : tuple<tuple<>, i32> -> i32
 // CHECK: %[[R0:.+]] = tuple.get %arg1, 0 : tuple<tuple<>> -> tuple<>

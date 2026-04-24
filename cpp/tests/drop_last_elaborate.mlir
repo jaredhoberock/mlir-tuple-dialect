@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: mlir-opt --pass-pipeline="builtin.module(monomorphize-trait)" %s | FileCheck %s
+// RUN: mlir-opt --pass-pipeline="builtin.module(tuple-elaborate)" %s | FileCheck %s
 
 // -----
 // Drop last from pair -> singleton
 // CHECK-LABEL: func.func @drop_last_pair
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<i64, i32> -> i64
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]] : i64) : tuple<i64>
 // CHECK: return %[[M0]] : tuple<i64>
@@ -17,6 +18,7 @@ func.func @drop_last_pair(%a : tuple<i64, i32>) -> tuple<i64> {
 // -----
 // Drop last from singleton -> empty
 // CHECK-LABEL: func.func @drop_last_singleton
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[M0:.+]] = tuple.make : tuple<>
 // CHECK: return %[[M0]] : tuple<>
 func.func @drop_last_singleton(%a : tuple<i64>) -> tuple<> {
@@ -27,6 +29,7 @@ func.func @drop_last_singleton(%a : tuple<i64>) -> tuple<> {
 // -----
 // Drop last from triple -> pair
 // CHECK-LABEL: func.func @drop_last_triple
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<i32, i64, i8> -> i32
 // CHECK: %[[G1:.+]] = tuple.get %arg0, 1 : tuple<i32, i64, i8> -> i64
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]], %[[G1]] : i32, i64) : tuple<i32, i64>
@@ -39,6 +42,7 @@ func.func @drop_last_triple(%a : tuple<i32, i64, i8>) -> tuple<i32, i64> {
 // -----
 // Drop last preserves nested tuple on the left
 // CHECK-LABEL: func.func @drop_last_preserves_nested
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<tuple<i64, i64>, i32> -> tuple<i64, i64>
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]] : tuple<i64, i64>) : tuple<tuple<i64, i64>>
 // CHECK: return %[[M0]] : tuple<tuple<i64, i64>>
@@ -50,6 +54,7 @@ func.func @drop_last_preserves_nested(%a : tuple<tuple<i64, i64>, i32>) -> tuple
 // -----
 // Drop last removes nested tuple
 // CHECK-LABEL: func.func @drop_last_removes_nested
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<i64, tuple<i32, i32>> -> i64
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]] : i64) : tuple<i64>
 // CHECK: return %[[M0]] : tuple<i64>
@@ -61,6 +66,7 @@ func.func @drop_last_removes_nested(%a : tuple<i64, tuple<i32, i32>>) -> tuple<i
 // -----
 // Drop last with empty tuple element preserved
 // CHECK-LABEL: func.func @drop_last_preserves_empty
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<tuple<>, i32> -> tuple<>
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]] : tuple<>) : tuple<tuple<>>
 // CHECK: return %[[M0]] : tuple<tuple<>>
@@ -72,6 +78,7 @@ func.func @drop_last_preserves_empty(%a : tuple<tuple<>, i32>) -> tuple<tuple<>>
 // -----
 // Drop last chained: drop twice from triple
 // CHECK-LABEL: func.func @drop_last_chained
+// CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<i32, i64, i8> -> i32
 // CHECK: %[[G1:.+]] = tuple.get %arg0, 1 : tuple<i32, i64, i8> -> i64
 // CHECK: %[[M0:.+]] = tuple.make(%[[G0]], %[[G1]] : i32, i64) : tuple<i32, i64>
