@@ -1,10 +1,12 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
+#include "Canonicalization.hpp"
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <Instantiation.hpp>
 
 namespace mlir::tuple {
@@ -217,6 +219,14 @@ void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
     GetOpCanonicalization,
     MakeOpCanonicalization
   >(patterns.getContext());
+}
+
+void TupleCanonicalizePass::runOnOperation() {
+  RewritePatternSet patterns(&getContext());
+  populateTupleCanonicalizationPatterns(patterns);
+
+  if (failed(applyPatternsGreedily(getOperation(), std::move(patterns))))
+    signalPassFailure();
 }
 
 } // end mlir::tuple
