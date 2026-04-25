@@ -4,7 +4,9 @@
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
+#include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/SCF/Transforms/Patterns.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace mlir::tuple {
@@ -93,6 +95,46 @@ void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Rew
     GetOpLowering,
     MakeOpLowering
   >(typeConverter, patterns.getContext());
+}
+
+void ConvertTupleToLLVMPass::getDependentDialects(
+    DialectRegistry &registry) const {
+  registry.insert<LLVM::LLVMDialect, scf::SCFDialect>();
+}
+
+void ConvertTupleToLLVMPass::runOnOperation() {
+  MLIRContext *ctx = &getContext();
+  LLVMTypeConverter typeConverter(ctx);
+  RewritePatternSet patterns(ctx);
+  ConversionTarget target(*ctx);
+
+  populateTupleToLLVMConversionPatterns(typeConverter, patterns);
+
+  target.addIllegalDialect<TupleDialect>();
+  target.addLegalDialect<LLVM::LLVMDialect>();
+  target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
+  target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
+    return typeConverter.isSignatureLegal(op.getFunctionType());
+  });
+  target.addDynamicallyLegalOp<func::CallOp>(
+      [&](func::CallOp op) { return typeConverter.isLegal(op); });
+  target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
+    return typeConverter.isLegal(op.getOperandTypes());
+  });
+
+  scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
+                                                       patterns, target);
+  populateAnyFunctionOpInterfaceTypeConversionPattern(patterns, typeConverter);
+  populateCallOpTypeConversionPattern(patterns, typeConverter);
+  populateReturnOpTypeConversionPattern(patterns, typeConverter);
+
+  if (failed(applyPartialConversion(getOperation(), target,
+                                    std::move(patterns))))
+    signalPassFailure();
+}
+
+std::unique_ptr<Pass> createConvertTupleToLLVMPass() {
+  return std::make_unique<ConvertTupleToLLVMPass>();
 }
 
 } // end mlir::tuple
