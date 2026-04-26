@@ -3,14 +3,18 @@
 #include "ConvertToLLVM.hpp"
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
+#include <TraitTypes.hpp>
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/SCF/Transforms/Patterns.h>
+#include <mlir/Interfaces/FunctionInterfaces.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace mlir::tuple {
 
+/// %field = tuple.get %tuple[INDEX] : tuple<Ts...>
+///   -> %field = llvm.extractvalue %tuple[INDEX] : !llvm.struct<...>
 struct GetOpLowering : OpConversionPattern<GetOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -24,11 +28,14 @@ struct GetOpLowering : OpConversionPattern<GetOp> {
       adaptor.getTuple(),
       index
     );
-
     return success();
   }
 };
 
+/// %tuple = tuple.make %a, %b, ... : tuple<A, B, ...>
+///   -> %tuple = llvm.mlir.undef : !llvm.struct<(A', B', ...)>
+///      %tuple0 = llvm.insertvalue %a, %tuple[0] : !llvm.struct<(A', B', ...)>
+///      %tuple1 = llvm.insertvalue %b, %tuple0[1] : !llvm.struct<(A', B', ...)>
 struct MakeOpLowering : OpConversionPattern<MakeOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -67,33 +74,111 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
   }
 };
 
-void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
-  // add a type conversion all TupleTypes to !llvm.struct
-  typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
-    // lower tuple<> directly to i8
-    if (tupleTy.getTypes().empty()) {
-      return IntegerType::get(tupleTy.getContext(), 8);
-    }
+struct ConvertAnyOpWithTupleTypes : public ConversionPattern {
+  ConvertAnyOpWithTupleTypes(const TypeConverter &tc, MLIRContext *ctx)
+      : ConversionPattern(tc, Pattern::MatchAnyOpTypeTag(), /*benefit=*/1,
+                          ctx) {}
 
-    SmallVector<Type> elementTypes;
+  /// Rebuilds non-tuple ops whose boundary mentions TupleType, preserving
+  /// attributes, properties, successors, and regions while converting types.
+  LogicalResult
+  matchAndRewrite(Operation *op, ArrayRef<Value> operands,
+                  ConversionPatternRewriter &rewriter) const override {
+    if (op->getDialect() && isa<TupleDialect>(op->getDialect()))
+      return failure();
+    if (!trait::opMentionsType<TupleType>(op))
+      return failure();
+    if (getTypeConverter()->isLegal(op))
+      return failure();
 
-    // convert each element type
-    for (Type elemTy : tupleTy.getTypes()) {
-      Type convertedElemTy = typeConverter.convertType(elemTy);
-      if (!convertedElemTy) {
-        return std::nullopt;
+    SmallVector<Type> newResultTypes;
+    if (failed(getTypeConverter()->convertTypes(op->getResultTypes(),
+                                                newResultTypes)))
+      return rewriter.notifyMatchFailure(op, "could not convert result types");
+
+    IRMapping mapper;
+    for (auto [oldOperand, newOperand] : llvm::zip(op->getOperands(), operands))
+      mapper.map(oldOperand, newOperand);
+
+    Operation *newOp = Operation::create(
+        op->getLoc(), op->getName(), newResultTypes, operands, op->getAttrs(),
+        op->getPropertiesStorage(), op->getSuccessors(), op->getNumRegions());
+    for (auto [oldResult, newResult] :
+         llvm::zip(op->getResults(), newOp->getResults()))
+      mapper.map(oldResult, newResult);
+
+    rewriter.insert(newOp);
+    for (auto [oldRegion, newRegion] :
+         llvm::zip(op->getRegions(), newOp->getRegions())) {
+      oldRegion.cloneInto(&newRegion, mapper);
+      if (failed(rewriter.convertRegionTypes(&newRegion, *getTypeConverter()))) {
+        rewriter.eraseOp(newOp);
+        return rewriter.notifyMatchFailure(op, "could not convert region types");
       }
-      elementTypes.push_back(convertedElemTy);
     }
 
-    // create LLVM struct
-    return LLVM::LLVMStructType::getLiteral(tupleTy.getContext(), elementTypes);
+    rewriter.replaceOp(op, newOp->getResults());
+    return success();
+  }
+};
+
+/// Adds only tuple-owned type conversions. TupleType lowers to an LLVM literal
+/// struct; other structural types are rebuilt only when they contain TupleType.
+static void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
+  typeConverter.addConversion([&](Type type) -> std::optional<Type> {
+    if (isa<TupleType>(type))
+      return std::nullopt;
+    if (!trait::containsType<TupleType>(type))
+      return std::nullopt;
+
+    SmallVector<Attribute> subAttrs;
+    SmallVector<Type> subTypes;
+    type.walkImmediateSubElements([&](Attribute attr) {
+      subAttrs.push_back(attr);
+    }, [&](Type subType) {
+      subTypes.push_back(subType);
+    });
+
+    bool changed = false;
+    SmallVector<Type> newSubTypes;
+    newSubTypes.reserve(subTypes.size());
+    for (Type subType : subTypes) {
+      Type converted = typeConverter.convertType(subType);
+      if (!converted)
+        return std::nullopt;
+      changed |= converted != subType;
+      newSubTypes.push_back(converted);
+    }
+
+    if (!changed)
+      return type;
+    return type.replaceImmediateSubElements(subAttrs, newSubTypes);
   });
 
-  // add LLVM-specific lowering patterns
+  typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
+    if (tupleTy.getTypes().empty())
+      return IntegerType::get(tupleTy.getContext(), 8);
+
+    SmallVector<Type> elementTypes;
+    for (Type elemTy : tupleTy.getTypes()) {
+      Type converted = typeConverter.convertType(elemTy);
+      if (!converted)
+        return std::nullopt;
+      elementTypes.push_back(converted);
+    }
+
+    return LLVM::LLVMStructType::getLiteral(tupleTy.getContext(), elementTypes);
+  });
+}
+
+/// Populates the conversion hook used by the tuple dialect's ConvertToLLVM
+/// interface without making unrelated types legal.
+void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
+  populateTupleToLLVMTypeConversions(typeConverter);
   patterns.add<
     GetOpLowering,
-    MakeOpLowering
+    MakeOpLowering,
+    ConvertAnyOpWithTupleTypes
   >(typeConverter, patterns.getContext());
 }
 
@@ -105,6 +190,10 @@ void ConvertTupleToLLVMPass::getDependentDialects(
 void ConvertTupleToLLVMPass::runOnOperation() {
   MLIRContext *ctx = &getContext();
   LLVMTypeConverter typeConverter(ctx);
+
+  // The standalone pass only owns tuple conversion, so foreign/unrelated types
+  // remain legal here. The reusable hook must not install this fallback.
+  typeConverter.addConversion([](Type type) { return type; });
   RewritePatternSet patterns(ctx);
   ConversionTarget target(*ctx);
 
@@ -112,15 +201,19 @@ void ConvertTupleToLLVMPass::runOnOperation() {
 
   target.addIllegalDialect<TupleDialect>();
   target.addLegalDialect<LLVM::LLVMDialect>();
-  target.markUnknownOpDynamicallyLegal([](Operation *) { return true; });
-  target.addDynamicallyLegalOp<func::FuncOp>([&](func::FuncOp op) {
-    return typeConverter.isSignatureLegal(op.getFunctionType());
-  });
-  target.addDynamicallyLegalOp<func::CallOp>(
-      [&](func::CallOp op) { return typeConverter.isLegal(op); });
-  target.addDynamicallyLegalOp<func::ReturnOp>([&](func::ReturnOp op) {
-    return typeConverter.isLegal(op.getOperandTypes());
-  });
+
+  auto opIsTupleLegal = [&](Operation *op) {
+    if (!trait::opMentionsType<TupleType>(op))
+      return true;
+
+    if (auto funcOp = dyn_cast<FunctionOpInterface>(op))
+      if (auto type = dyn_cast<FunctionType>(funcOp.getFunctionType()))
+        return typeConverter.isSignatureLegal(type);
+
+    return typeConverter.isLegal(op);
+  };
+
+  target.markUnknownOpDynamicallyLegal(opIsTupleLegal);
 
   scf::populateSCFStructuralTypeConversionsAndLegality(typeConverter,
                                                        patterns, target);
