@@ -281,8 +281,9 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 
     // if the impl "tuple.PartialEq" already exists, do nothing
     StringRef implName = "tuple.PartialEq";
-    if (SymbolTable::lookupNearestSymbolFrom<ImplOp>(module, FlatSymbolRefAttr::get(ctx, implName)))
-      return failure();
+    for (ImplOp existing : module.getOps<ImplOp>())
+      if (existing.getSymName() == implName)
+        return failure();
 
     // the mapper trait must exist in order to generate the impl
     auto mapPartialEqRef = FlatSymbolRefAttr::get(ctx, "tuple.MapPartialEq");
@@ -387,9 +388,9 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
     // if the impl already exists, do nothing
     StringRef implName = "tuple.PartialOrd";
-    if (SymbolTable::lookupNearestSymbolFrom<ImplOp>(
-          module, FlatSymbolRefAttr::get(ctx, implName)))
-      return failure();
+    for (ImplOp existing : module.getOps<ImplOp>())
+      if (existing.getSymName() == implName)
+        return failure();
 
     // require the mapper trait to exist
     auto mapRef = FlatSymbolRefAttr::get(ctx, "tuple.MapPartialOrd");
