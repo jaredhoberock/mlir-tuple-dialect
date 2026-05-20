@@ -85,7 +85,7 @@ LogicalResult AllOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned ar
     FunctionType callerTy = getFunctionTypeForIteration(i);
 
     // unify body formal with actual for this iteration
-    if (failed(trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err)))
+    if (failed(trait::buildSpecialization(calleeTy, callerTy, module, err)))
       return failure();
   }
   return success();
@@ -423,7 +423,7 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (failed(formalClaimsTy)) return failure();
 
   // check that the types can unify
-  if (failed(trait::buildSpecializationSubstitution(*formalClaimsTy, claims.getType(), module, errFn)))
+  if (failed(trait::buildSpecialization(*formalClaimsTy, claims.getType(), module, errFn)))
     return failure();
 
   return success();
@@ -625,7 +625,7 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   Type YieldFormal = calleeTy.getResult(0);
 
   // body must preserve accumulator shape
-  if (failed(trait::buildSpecializationSubstitution(AccFormal, YieldFormal, module, err)))
+  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, module, err)))
     return failure();
 
   // thread accumulator type across iterations, collecting result element types
@@ -638,11 +638,11 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   for (unsigned i = 0; i < arity; ++i) {
     FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
-    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
     if (failed(subst))
       return failure();
 
-    prev = trait::applySubstitutionToFixedPoint(*subst, YieldFormal);
+    prev = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), YieldFormal);
     resultElemTypes.push_back(prev);
   }
 
@@ -666,7 +666,7 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
 
   // The accumulator formal must be compatible with the init type.
   // This ensures the body can accept the initial value.
-  if (failed(trait::buildSpecializationSubstitution(AccFormal, initActual, module, err)))
+  if (failed(trait::buildSpecialization(AccFormal, initActual, module, err)))
     return failure();
 
   // When arity is unknown, we can't verify each element type individually.
@@ -677,7 +677,7 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
 
   // The body must preserve the accumulator's shape: what goes in must come out.
   // This ensures the accumulator type is consistent across all iterations.
-  if (failed(trait::buildSpecializationSubstitution(AccFormal, YieldFormal, module, err)))
+  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, module, err)))
     return failure();
 
   // Result must be polymorphic when input is polymorphic
@@ -713,7 +713,7 @@ FunctionType ExclusiveScanOp::getFunctionTypeForIteration(
   );
 }
 
-FailureOr<DenseMap<Type,Type>> ExclusiveScanOp::buildSubstitutionForIteration(
+FailureOr<trait::SpecializationMap> ExclusiveScanOp::buildSubstitutionForIteration(
     unsigned int i,
     Type accumulatorType,
     function_ref<InFlightDiagnostic()> errFn) {
@@ -730,7 +730,8 @@ FailureOr<DenseMap<Type,Type>> ExclusiveScanOp::buildSubstitutionForIteration(
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i, accumulatorType);
 
-  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
+  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
+  return subst;
 }
 
 
@@ -965,7 +966,7 @@ FailureOr<Type> FlatMapOp::inferIntermediateMapType(function_ref<InFlightDiagnos
     if (failed(subst)) return failure();
 
     // instantiate the body result type for this element
-    Type Yactual = trait::applySubstitutionToFixedPoint(*subst, Yformal);
+    Type Yactual = subst->apply(Yformal);
 
     if (!isTupleLike(Yactual)) {
       if (errFn) errFn() << "body yield for element " << i
@@ -1044,7 +1045,7 @@ FunctionType FlatMapOp::getFunctionTypeForIteration(unsigned int i) {
   );
 }
 
-FailureOr<DenseMap<Type,Type>> FlatMapOp::buildSubstitutionForIteration(
+FailureOr<trait::SpecializationMap> FlatMapOp::buildSubstitutionForIteration(
     unsigned int i,
     function_ref<InFlightDiagnostic()> errFn) {
   auto module = getOperation()->getParentOfType<ModuleOp>();
@@ -1054,7 +1055,8 @@ FailureOr<DenseMap<Type,Type>> FlatMapOp::buildSubstitutionForIteration(
   }
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i);
-  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
+  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
+  return subst;
 }
 
 LogicalResult FlatMapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
@@ -1083,12 +1085,12 @@ LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigne
     FunctionType callerTy = getFunctionTypeForIteration(i);
 
     // unify body formal with actual for this iteration
-    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
     if (failed(subst))
       return failure();
 
     // instantiate the yield type for this iteration
-    Type Yactual = trait::applySubstitutionToFixedPoint(*subst, Yformal);
+    Type Yactual = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), Yformal);
 
     // each iteration must yield something TupleLike
     if (!isTupleLike(Yactual))
@@ -1230,16 +1232,16 @@ LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned 
     FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
     // unify each iteration in isolation as if it was a separate function call
-    auto subst = trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err);
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
     if (failed(subst)) return failure();
 
     // update the previous result type by applying the substitution
     // to the body's result type
-    prev = trait::applySubstitutionToFixedPoint(*subst, R);
+    prev = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), R);
   }
 
   // unify the formal result type with the actual final result type
-  return trait::buildSpecializationSubstitution(getResult().getType(), prev, module, err);
+  return trait::buildSpecialization(getResult().getType(), prev, module, err);
 }
 
 LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
@@ -1254,7 +1256,7 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   Type resultFormal     = getResult().getType(); // op's formal result type
 
   // must be able to specialize the formal acc with the actual init type
-  if (failed(trait::buildSpecializationSubstitution(accFormal, initActual, module, err)))
+  if (failed(trait::buildSpecialization(accFormal, initActual, module, err)))
     return failure();
 
   // every non-accumulator body arg type must be purely polymorphic
@@ -1266,11 +1268,11 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   }
 
   // closure: one step of the body must preserve the accumulator shape
-  if (failed(trait::buildSpecializationSubstitution(accFormal, yieldFormal, module, err)))
+  if (failed(trait::buildSpecialization(accFormal, yieldFormal, module, err)))
     return failure();
 
   // op result consistency: op's formal result must match the accumulator
-  return trait::buildSpecializationSubstitution(resultFormal, accFormal, module, err);
+  return trait::buildSpecialization(resultFormal, accFormal, module, err);
 }
 
 YieldOp FoldlOp::bodyYield() {
@@ -1304,7 +1306,7 @@ FunctionType FoldlOp::getFunctionTypeForIteration(
   );
 }
 
-llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
+trait::SpecializationMap FoldlOp::buildSubstitutionForIteration(
     unsigned int i, 
     Type resultTypeOfPreviousIteration) {
   assert(inputTypesAreTupleTypes() && "FoldlOp::buildSubstitutionForIteration: inputs must be TupleType");
@@ -1313,7 +1315,7 @@ llvm::DenseMap<Type,Type> FoldlOp::buildSubstitutionForIteration(
   auto iterationTy = getFunctionTypeForIteration(i, resultTypeOfPreviousIteration);
 
   auto module = getOperation()->getParentOfType<ModuleOp>();
-  auto subst = trait::buildSpecializationSubstitution(bodyTy, iterationTy, module);
+  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module);
   if (failed(subst)) {
     // this should never happen if FoldlOp::verifySymbolUses succeeds
     llvm_unreachable("buildSubstitutionForIteration: unification failed");
@@ -1521,7 +1523,7 @@ LogicalResult MapOp::verifySymbolUsesWithKnownArity(ModuleOp module,
 
     // attempt unification between the body's formal type and
     // the actual caller type at this iteration
-    if (failed(trait::buildSpecializationSubstitution(calleeTy, callerTy, module, err)))
+    if (failed(trait::buildSpecialization(calleeTy, callerTy, module, err)))
       return failure();
   }
 
@@ -1586,7 +1588,7 @@ FunctionType MapOp::getFunctionTypeForIteration(unsigned elemIdx) {
   return FunctionType::get(getContext(), argTys, resultElemTy);
 }
 
-FailureOr<DenseMap<Type,Type>> MapOp::buildSubstitutionForIteration(
+FailureOr<trait::SpecializationMap> MapOp::buildSubstitutionForIteration(
     unsigned int i,
     function_ref<InFlightDiagnostic()> errFn) {
   auto module = getOperation()->getParentOfType<ModuleOp>();
@@ -1598,7 +1600,8 @@ FailureOr<DenseMap<Type,Type>> MapOp::buildSubstitutionForIteration(
   auto bodyTy = getBodyFunctionType();
   auto iterationTy = getFunctionTypeForIteration(i);
 
-  return trait::buildSpecializationSubstitution(bodyTy, iterationTy, module, errFn);
+  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
+  return subst;
 }
 
 }

@@ -33,8 +33,8 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
     static PolyType getUnique(MLIRContext* ctx);
 
     // for GenericTypeInterface
-    Type instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter);
-    Type specializeWith(const DenseMap<Type,Type> &subst) const;
+    Type instantiate(::mlir::trait::InstantiationMap &inst, uint64_t &idCounter);
+    Type specializeWith(const ::mlir::trait::SpecializationMap &subst) const;
 
     // for PolymorphicTypeInterface
     bool isPolymorphic() const { return true; }
@@ -68,7 +68,7 @@ def InferenceType : TypeDef<TupleDialect, "Inference", [
     // for UnificationTypeInterface
     LogicalResult unify(Type other,
                         ModuleOp module,
-                        DenseMap<Type,Type> &subst,
+                        ::mlir::trait::UnificationMap &subst,
                         llvm::function_ref<InFlightDiagnostic()> emitError);
   }];
 

@@ -178,7 +178,7 @@ struct MapGenerator : trait::ImplGenerator {
     if (!module) return failure();
 
     // check that the wanted claim can unify with our formal claim
-    if (failed(buildSpecializationSubstitution(ourClaim, wanted, module)))
+    if (failed(buildSpecialization(ourClaim, wanted, module)))
       return failure();
 
     // build assumptions: one @MappedTrait[...] per element position

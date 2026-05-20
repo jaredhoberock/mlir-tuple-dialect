@@ -7,7 +7,7 @@
 #include "TupleOps.hpp"
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Transforms/DialectConversion.h>
-#include <Instantiation.hpp>
+#include <Specialization.hpp>
 #include <Trait.hpp>
 
 namespace mlir::tuple {

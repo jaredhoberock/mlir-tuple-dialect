@@ -6,7 +6,7 @@
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
-#include <Instantiation.hpp>
+#include <Specialization.hpp>
 #include <Trait.hpp>
 
 namespace mlir::tuple {
@@ -544,11 +544,11 @@ struct FoldlOpLowering : public OpRewritePattern<FoldlOp> {
         args.push_back(GetOp::create(rewriter, loc, tuple, i));
 
       // build the type substitution for this iteration
-      DenseMap<Type,Type> subst = op.buildSubstitutionForIteration(i, previousResult.getType());
+      auto subst = op.buildSubstitutionForIteration(i, previousResult.getType());
 
       // instantiate the body into a temporary Region
       Region bodyInstance;
-      trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, subst);
+      trait::specializePolymorphicRegion(rewriter, body, bodyInstance, subst.toTypeMap());
 
       // get the block to inline
       Block* block = &bodyInstance.front();
@@ -642,7 +642,7 @@ static FailureOr<Value> instantiateElementalTupleOpIteration(
 
   // instantiate body into temporary region
   Region bodyInstance;
-  trait::instantiatePolymorphicRegion(rewriter, body, bodyInstance, *subst);
+  trait::specializePolymorphicRegion(rewriter, body, bodyInstance, subst->toTypeMap());
 
   Block *block = &bodyInstance.front();
   auto yieldOp = cast<YieldOp>(block->getTerminator());

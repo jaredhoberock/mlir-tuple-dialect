@@ -278,7 +278,7 @@ def ExclusiveScanOp : TupleOp<"exclusive_scan", [
     FunctionType getBodyFunctionType();
     FunctionType getFunctionTypeForIteration(unsigned i, Type accumulatorType);
 
-    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+    FailureOr<trait::SpecializationMap> buildSubstitutionForIteration(
         unsigned i,
         Type accumulatorType,
         function_ref<InFlightDiagnostic()> errFn = nullptr);
@@ -364,7 +364,7 @@ def FlatMapOp : TupleOp<"flat_map", [
     LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
     LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
 
-    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+    FailureOr<trait::SpecializationMap> buildSubstitutionForIteration(
         unsigned int i,
         function_ref<InFlightDiagnostic()> errFn = nullptr);
 
@@ -408,7 +408,7 @@ def FoldlOp : TupleOp<"foldl", [
     LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
     LogicalResult verifySymbolUsesWithUnknownArity(ModuleOp module);
 
-    llvm::DenseMap<Type,Type> buildSubstitutionForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
+    trait::SpecializationMap buildSubstitutionForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
 
     // this method succeeds only when each input tuple is a concrete TupleType
     // the element types of each input tuple are still allowed to be polymorphic
@@ -570,7 +570,7 @@ def MapOp : TupleOp<"map", [
     LogicalResult verifySymbolUsesWithKnownArity(ModuleOp module, unsigned arity);
     LogicalResult verifySymbolUsesWithUnknownArity();
 
-    FailureOr<DenseMap<Type,Type>> buildSubstitutionForIteration(
+    FailureOr<trait::SpecializationMap> buildSubstitutionForIteration(
         unsigned int i,
         function_ref<InFlightDiagnostic()> errFn = nullptr);
 

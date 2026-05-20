@@ -32,24 +32,24 @@ PolyType PolyType::getUnique(MLIRContext* ctx) {
   return PolyType::get(ctx, inner);
 }
 
-Type PolyType::instantiate(DenseMap<Type,Type> &inst, uint64_t &idCounter) {
+Type PolyType::instantiate(trait::InstantiationMap &inst, uint64_t &idCounter) {
+  auto self = cast<trait::GenericTypeInterface>(*this);
+
   // check memo first - if we've already instantiated this PolyType,
   // return the instance
-  if (auto it = inst.find(*this); it != inst.end()) {
-    return it->second;
-  }
+  if (auto existing = inst.lookup(self))
+    return *existing;
 
   // create and remember a fresh inference var for this poly
   auto fresh = InferenceType::get(getContext(), idCounter++, getInner().getUniqueId());
-  inst[*this] = fresh;
+  inst.bind(self, cast<trait::UnificationTypeInterface>(fresh));
   return fresh;
 }
 
-Type PolyType::specializeWith(const DenseMap<Type,Type> &subst) const {
+Type PolyType::specializeWith(const trait::SpecializationMap &subst) const {
   // check if this type appears in the substitution
-  auto it = subst.find(*this);
-  if (it != subst.end())
-    return it->second;
+  if (auto replacement = subst.lookup(cast<trait::GenericTypeInterface>(*this)))
+    return *replacement;
 
   // otherwise, specialize the inner type
   trait::PolyType inner = getInner();
@@ -99,21 +99,22 @@ void PolyType::print(AsmPrinter &printer) const {
 LogicalResult InferenceType::unify(
   Type other,
   ModuleOp /*module*/,
-  DenseMap<Type,Type> &subst,
+  trait::UnificationMap &subst,
   llvm::function_ref<InFlightDiagnostic()> err) {
   Type self = *this;
+  auto selfKey = cast<trait::UnificationTypeInterface>(self);
 
   // normalize
-  other = trait::applySubstitutionToFixedPoint(subst, other);
+  other = trait::applySubstitutionToFixedPoint(subst.toTypeMap(), other);
 
   // first check for trivial equality
   if (self == other) return success();
 
   // if self is already bound, check consistency
-  if (auto it = subst.find(self); it != subst.end()) {
-    if (it->second != other) {
+  if (auto existing = subst.lookup(selfKey)) {
+    if (*existing != other) {
       if (err) return err() << "inference variable " << self
-                            << " already bound to " << it->second
+                            << " already bound to " << *existing
                             << ", cannot bind to " << other;
       return failure();
     }
@@ -137,7 +138,7 @@ LogicalResult InferenceType::unify(
 
   // accept only tuple-like types
   if (isTupleLike(other)) {
-    subst[self] = other;
+    subst.bind(selfKey, other);
     return success();
   }
 
