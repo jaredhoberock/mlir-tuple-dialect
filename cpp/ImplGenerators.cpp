@@ -50,7 +50,30 @@ static LogicalResult matchGenerator(trait::TraitOp trait,
   if (app.getTraitName().getValue() != trait.getSymName())
     return failure();
 
+  unsigned int numTypeArgs = app.getTypeArgs().size();
+  if (numTypeArgs < minNumTypeArgs || numTypeArgs > maxNumTypeArgs)
+    return failure();
+
   return success();
+}
+
+static FailureOr<Type> homogeneousTupleElement(Type ty) {
+  auto tupleTy = dyn_cast<TupleType>(ty);
+  if (!tupleTy)
+    return failure();
+
+  // The empty tuple is homogeneous with uninhabited element type `none`.
+  if (tupleTy.size() == 0)
+    return NoneType::get(ty.getContext());
+
+  // Non-empty tuples are homogeneous only when every element type matches
+  // the first element exactly.
+  Type element = tupleTy.getType(0);
+  for (Type current : tupleTy.getTypes().drop_front())
+    if (current != element)
+      return failure();
+
+  return element;
 }
 
 static SmallVector<trait::ClaimType> mapTraitAcrossTupleElements(
@@ -83,6 +106,114 @@ static SmallVector<trait::ClaimType> mapTraitAcrossTupleElements(
 
   return claims;
 }
+
+/// TupleGenerator synthesizes impls for traits that declare themselves as the
+/// structural "this type is a tuple" predicate.
+///
+/// The generated trait must have exactly one type argument. The impl is emitted
+/// only when the wanted self type is a concrete TupleType; opaque types need an
+/// explicit source-level bound instead of guessing tuple structure here.
+struct TupleGenerator : trait::ImplGenerator {
+  FailureOr<trait::ImplOp>
+  generateImpl(trait::TraitOp trait,
+               trait::ClaimType wanted,
+               PatternRewriter &rewriter) const override {
+    using namespace mlir::trait;
+
+    // The source bridge selects this generator with tuple.impl_generator =
+    // "tuple"; unrelated traits are left to other generators.
+    if (failed(matchGenerator(trait, wanted, "tuple", 1, 1)))
+      return failure();
+
+    // Only concrete tuple types are structurally known to satisfy this trait.
+    // Polymorphic or opaque types need an explicit bound from the source side.
+    Type selfTy = wanted.getTraitApplication().getTypeArgs().front();
+    if (!isa<TupleType>(selfTy))
+      return failure();
+
+    // Generated impls live at module scope and use the same canonical symbol
+    // name as parser-created trait.impl operations.
+    ModuleOp module = trait->getParentOfType<ModuleOp>();
+    if (!module)
+      return failure();
+
+    MLIRContext *ctx = rewriter.getContext();
+    Location loc = rewriter.getUnknownLoc();
+    auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
+    auto claim = ClaimType::get(ctx, traitRef, {selfTy});
+    auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
+    std::string implName = ImplOp::generateSymName(
+        claim.getTraitApplication(), noAssumptions);
+    for (ImplOp existing : module.getOps<ImplOp>())
+      if (existing.getSymName() == implName)
+        return failure();
+
+    // Tuple has no methods or associated types, so the impl body stays empty.
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToEnd(module.getBody());
+    return ImplOp::create(rewriter, loc, implName,
+                          claim.getTraitApplication(),
+                          ArrayRef<TraitApplicationAttr>{});
+  }
+};
+
+/// HomogeneousTupleGenerator synthesizes impls for homogeneous tuple facts.
+///
+/// The generated trait has one type argument and an `Element` associated type.
+/// A concrete tuple matches when every element has the same type. The
+/// empty tuple uses `none` as its uninhabited element type.
+struct HomogeneousTupleGenerator : trait::ImplGenerator {
+  FailureOr<trait::ImplOp>
+  generateImpl(trait::TraitOp trait,
+               trait::ClaimType wanted,
+               PatternRewriter &rewriter) const override {
+    using namespace mlir::trait;
+
+    // The source bridge selects this generator with tuple.impl_generator =
+    // "homogeneous_tuple"; unrelated traits are left to other generators.
+    if (failed(matchGenerator(trait, wanted, "homogeneous_tuple", 1, 1)))
+      return failure();
+
+    // Match only concrete homogeneous tuple types and compute the Element
+    // associated type at the same time.
+    auto typeArgs = wanted.getTraitApplication().getTypeArgs();
+    Type tupleTy = typeArgs[0];
+    auto elementTy = homogeneousTupleElement(tupleTy);
+    if (failed(elementTy))
+      return failure();
+
+    // Generated impls live at module scope and use the same canonical symbol
+    // name as parser-created trait.impl operations.
+    ModuleOp module = trait->getParentOfType<ModuleOp>();
+    if (!module)
+      return failure();
+
+    MLIRContext *ctx = rewriter.getContext();
+    Location loc = rewriter.getUnknownLoc();
+    auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
+    auto claim = ClaimType::get(ctx, traitRef, {tupleTy});
+    auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
+    std::string implName = ImplOp::generateSymName(
+        claim.getTraitApplication(), noAssumptions);
+    for (ImplOp existing : module.getOps<ImplOp>())
+      if (existing.getSymName() == implName)
+        return failure();
+
+    // The impl body contains only the Element associated-type binding.
+    OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPointToEnd(module.getBody());
+    ImplOp impl = ImplOp::create(rewriter, loc, implName,
+                                 claim.getTraitApplication(),
+                                 ArrayRef<TraitApplicationAttr>{});
+
+    Block &body = impl.getBody().front();
+    OpBuilder::InsertionGuard bodyGuard(rewriter);
+    rewriter.setInsertionPointToStart(&body);
+    AssocTypeOp::create(rewriter, loc, "Element",
+                        TypeAttr::get(*elementTy), ArrayAttr{});
+    return impl;
+  }
+};
 
 /// MapGenerator synthesizes `trait.impl`s for traits that declare themselves
 /// as "map" generators over tuple arguments.
@@ -468,9 +599,11 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
 void populateImplGenerators(trait::ImplGeneratorSet &generators) {
   generators.add<
+    HomogeneousTupleGenerator,
     MapGenerator,
     TuplePartialEqGenerator,
-    TuplePartialOrdGenerator
+    TuplePartialOrdGenerator,
+    TupleGenerator
   >();
 }
 
