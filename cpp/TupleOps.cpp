@@ -12,6 +12,82 @@
 
 namespace mlir::tuple {
 
+static bool isTupleStructureTrait(StringRef traitName) {
+  return traitName == "Tuple";
+}
+
+/// Verifies that a downcast from `!trait.poly` to `!tuple.poly` is justified by
+/// a tuple-structure claim.
+///
+/// A tuple structural claim is a proof that the value's polymorphic type
+/// variable represents a tuple. The downcast is valid exactly when the result
+/// type is the value type with that claimed `!trait.poly` rewritten to the
+/// corresponding `!tuple.poly`.
+static LogicalResult verifyTupleStructuralDowncast(
+    Operation *op, Type valueTy, Type claimTy, Type resultTy,
+    function_ref<InFlightDiagnostic()> errFn) {
+  auto claimType = cast<trait::ClaimType>(claimTy);
+  auto traitApp = claimType.getTraitApplication();
+  StringRef traitName = traitApp.getTraitName().getValue();
+  if (!isTupleStructureTrait(traitName)) {
+    errFn() << "claim must be for a tuple-structure trait";
+    return failure();
+  }
+
+  auto typeArgs = traitApp.getTypeArgs();
+  if (typeArgs.size() != 1) {
+    errFn() << "tuple-structure claim must have exactly one type argument";
+    return failure();
+  }
+
+  Type claimArg = typeArgs[0];
+
+  // A concrete claim already names the final type. There is no polymorphic
+  // variable to reinterpret structurally, so the only valid conversion is the
+  // identity conversion on that concrete type.
+  if (trait::isMonomorphicType(claimArg)) {
+    if (valueTy != claimArg) {
+      errFn() << "value type must match concrete claim type argument";
+      return failure();
+    }
+    if (resultTy != claimArg) {
+      errFn() << "result type must match concrete claim type argument";
+      return failure();
+    }
+    return success();
+  }
+
+  auto claimPoly = dyn_cast<trait::PolyType>(claimArg);
+  if (!claimPoly) {
+    errFn() << "polymorphic tuple-structure claim must name one !trait.poly";
+    return failure();
+  }
+
+  auto structuralPoly = PolyType::get(op->getContext(), claimPoly);
+  llvm::DenseMap<Type, Type> substitution;
+  substitution[claimPoly] = structuralPoly;
+
+  // The downcast may only replace the exact polymorphic type named by the
+  // claim. If the value type does not contain it, the claim proves nothing
+  // about this value.
+  Type expected = trait::applySubstitutionOnce(substitution, valueTy);
+  if (expected == valueTy) {
+    errFn() << "value type does not contain the claimed tuple-polymorphic type";
+    return failure();
+  }
+
+  // Requiring the caller-provided result type to equal the computed rewrite
+  // prevents the op from using a valid tuple claim to smuggle in unrelated
+  // structural type changes.
+  if (expected != resultTy) {
+    errFn() << "result type must be the value type with " << claimPoly
+            << " rewritten to " << structuralPoly;
+    return failure();
+  }
+
+  return success();
+}
+
 
 //===----------------------------------------------------------------------===//
 // AllOp
@@ -102,6 +178,50 @@ LogicalResult AllOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
 
   // Yield/result is i1 and already checked in verify().
   return success();
+}
+
+
+//===----------------------------------------------------------------------===//
+// DowncastOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult DowncastOp::verify() {
+  return verifyTupleStructuralDowncast(
+      getOperation(), getValue().getType(), getClaim().getType(),
+      getResult().getType(), [&]() { return emitOpError(); });
+}
+
+LogicalResult DowncastOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto claimType = cast<trait::ClaimType>(getClaim().getType());
+  auto traitApp = claimType.getTraitApplication();
+  StringRef traitName = traitApp.getTraitName().getValue();
+  if (!isTupleStructureTrait(traitName))
+    return success();
+
+  // A tuple-structure downcast is justified by the source-level `Tuple` trait.
+  // Verifying the symbol here catches stale IR that carries a `@Tuple[...]`
+  // claim type but no corresponding trait declaration in the module.
+  ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module)
+    return emitOpError("not inside of a module");
+  if (!SymbolTable::lookupNearestSymbolFrom<trait::TraitOp>(
+          module, traitApp.getTraitName())) {
+    return emitOpError() << "couldn't find trait.trait '"
+                         << traitApp.getTraitName() << "'";
+  }
+
+  return success();
+}
+
+FailureOr<SmallVector<Type>> DowncastOp::specializeResultTypes() {
+  Type valueTy = getValue().getType();
+
+  // Once the value has been specialized to a concrete tuple type, the
+  // structural promise carried by !tuple.poly is no longer needed.
+  if (trait::isPolymorphicType(valueTy))
+    return failure();
+
+  return SmallVector<Type>{valueTy};
 }
 
 

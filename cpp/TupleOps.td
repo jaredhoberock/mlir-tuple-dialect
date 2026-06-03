@@ -10,6 +10,7 @@ include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "TraitOpInterfaces.td"
+include "TraitTypes.td"
 include "Tuple.td"
 include "TupleEnums.td"
 
@@ -378,6 +379,32 @@ def FlatMapOp : TupleOp<"flat_map", [
     /// Allow the dialect prefix to be omitted.
     static StringRef getDefaultDialect() { return "tuple"; }
   }];
+}
+
+def DowncastOp : TupleOp<"downcast", [
+  Pure,
+  DeclareOpInterfaceMethods<ResultTypeSpecializationOpInterface>,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>
+]> {
+  let summary = "Downcast !trait.poly to !tuple.poly given a Tuple claim";
+  let description = [{
+    Performs one identity-preserving substitution from a generic
+    trait-polymorphic type into tuple-polymorphic form, justified by a
+    source `@Tuple` claim.
+
+    Example:
+```mlir
+    %claim = trait.assume @Tuple[!T]
+    %tuple = tuple.downcast %value, %claim
+      : !T, !trait.claim<@Tuple[!T]> -> !tuple.poly<!T>
+```
+  }];
+
+  let arguments = (ins AnyType:$value, ClaimType:$claim);
+  let results = (outs AnyType:$result);
+
+  let assemblyFormat = "$value `,` $claim attr-dict `:` type($value) `,` type($claim) `->` type($result)";
+  let hasVerifier = 1;
 }
 
 def FoldlOp : TupleOp<"foldl", [

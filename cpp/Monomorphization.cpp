@@ -198,7 +198,27 @@ void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
 // populateInstantiateMonomorphsPatterns
 //===----------------------------------------------------------------------===//
 
+struct DowncastOpLowering : OpRewritePattern<DowncastOp> {
+  using OpRewritePattern::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(DowncastOp op,
+                                PatternRewriter &rewriter) const override {
+    Type valueTy = op.getValue().getType();
+    Type resultTy = op.getResult().getType();
+
+    // The bridge is erased only after monomorphization makes both sides the
+    // same concrete representation. Before that, tuple ops still need the
+    // structural !tuple.poly result.
+    if (trait::isPolymorphicType(valueTy) || trait::isPolymorphicType(resultTy))
+      return rewriter.notifyMatchFailure(op, "types are still polymorphic");
+
+    rewriter.replaceOp(op, op.getValue());
+    return success();
+  }
+};
+
 void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
+  patterns.add<DowncastOpLowering>(patterns.getContext());
   // The in-dialect elaboration of higher-level tuple ops into the
   // tuple.make / tuple.get core is the same work needed for
   // monomorphization, so reuse it directly.

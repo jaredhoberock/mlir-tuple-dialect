@@ -66,6 +66,11 @@ Type PolyType::specializeWith(const trait::SpecializationMap &subst) const {
 }
 
 Type PolyType::parse(AsmParser &parser) {
+  // These spellings are valid:
+  // !tuple.poly<unique>
+  // !tuple.poly<N>
+  // !tuple.poly<!trait.poly<N>>
+
   MLIRContext *ctx = parser.getContext();
   
   if (parser.parseLess())
@@ -76,9 +81,20 @@ Type PolyType::parse(AsmParser &parser) {
     inner = trait::PolyType::getUnique(ctx);
   } else {
     int uniqueId;
-    if (parser.parseInteger(uniqueId))
-      return {};
-    inner = trait::PolyType::get(ctx, uniqueId);
+    auto intResult = parser.parseOptionalInteger(uniqueId);
+    if (intResult.has_value() && succeeded(*intResult)) {
+      inner = trait::PolyType::get(ctx, uniqueId);
+    } else {
+      Type innerType;
+      if (parser.parseType(innerType))
+        return {};
+      inner = llvm::dyn_cast<trait::PolyType>(innerType);
+      if (!inner) {
+        parser.emitError(parser.getCurrentLocation(),
+                         "inner type of !tuple.poly must be !trait.poly");
+        return {};
+      }
+    }
   }
 
   if (parser.parseGreater())
