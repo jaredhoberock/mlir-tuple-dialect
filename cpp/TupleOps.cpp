@@ -213,15 +213,28 @@ LogicalResult DowncastOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return success();
 }
 
-FailureOr<SmallVector<Type>> DowncastOp::specializeResultTypes() {
-  Type valueTy = getValue().getType();
-
+LogicalResult DowncastOp::inferReturnTypes(
+    MLIRContext *, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
   // Once the value has been specialized to a concrete tuple type, the
-  // structural promise carried by !tuple.poly is no longer needed.
+  // structural promise carried by !tuple.poly is no longer needed. A
+  // polymorphic value's downcast result is a fresh PolyType, which
+  // inference refuses to mint.
+  Type valueTy = operands[0].getType();
   if (trait::isPolymorphicType(valueTy))
     return failure();
 
-  return SmallVector<Type>{valueTy};
+  inferredReturnTypes.push_back(valueTy);
+  return success();
+}
+
+LogicalResult DowncastOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<DowncastOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 
@@ -260,18 +273,30 @@ FailureOr<Type> AppendOp::inferResultType(
   return TupleType::get(ctx, elems);
 }
 
-FailureOr<SmallVector<Type>> AppendOp::specializeResultTypes() {
-  // are both operands concrete?
-  auto tupleTy = dyn_cast<TupleType>(getTuple().getType());
-  if (!tupleTy || trait::isPolymorphicType(getElement().getType()))
+LogicalResult AppendOp::inferReturnTypes(
+    MLIRContext *, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // An opaque polymorphic tuple has no determined append result (it would
+  // be a fresh PolyType, which inference refuses to mint).
+  auto tupleTy = dyn_cast<TupleType>(operands[0].getType());
+  if (!tupleTy || trait::isPolymorphicType(operands[1].getType()))
     return failure();
 
-  // try to infer a concrete result type
-  auto inferred = inferResultType(tupleTy, getElement().getType());
+  auto inferred = inferResultType(tupleTy, operands[1].getType());
   if (failed(inferred))
     return failure();
 
-  return SmallVector<Type>{*inferred};
+  inferredReturnTypes.push_back(*inferred);
+  return success();
+}
+
+LogicalResult AppendOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<AppendOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 LogicalResult AppendOp::verify() {
@@ -914,15 +939,30 @@ FailureOr<Type> DropLastOp::inferResultType(Type inputTy, function_ref<InFlightD
   return TupleType::get(inputTy.getContext(), elems);
 }
 
-FailureOr<SmallVector<Type>> DropLastOp::specializeResultTypes() {
-  // is the input a concrete TupleType yet?
-  auto tupleTy = dyn_cast<TupleType>(getInput().getType());
-  if (!tupleTy)
+LogicalResult DropLastOp::inferReturnTypes(
+    MLIRContext *, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // An opaque polymorphic tuple has no determined prefix type (it would be
+  // a fresh PolyType, which inference refuses to mint).
+  Type inputTy = operands[0].getType();
+  if (isa<PolyType>(inputTy))
     return failure();
-  auto inferred = inferResultType(tupleTy);
+
+  auto inferred = inferResultType(inputTy);
   if (failed(inferred))
     return failure();
-  return SmallVector<Type>{*inferred};
+
+  inferredReturnTypes.push_back(*inferred);
+  return success();
+}
+
+LogicalResult DropLastOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<DropLastOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 LogicalResult DropLastOp::verify() {
@@ -953,8 +993,7 @@ LogicalResult DropLastOp::verify() {
 // FlattenOp
 //===----------------------------------------------------------------------===//
 
-FailureOr<TupleType> FlattenOp::inferKnownArityResultType(function_ref<InFlightDiagnostic()> errFn) {
-  Type inputTy = getInput().getType();
+FailureOr<TupleType> FlattenOp::inferKnownArityResultType(Type inputTy, MLIRContext *ctx, function_ref<InFlightDiagnostic()> errFn) {
   auto inputTupleTy = dyn_cast<TupleType>(inputTy);
 
   // This helper only applies when the *outer* tuple has known arity.
@@ -987,7 +1026,7 @@ FailureOr<TupleType> FlattenOp::inferKnownArityResultType(function_ref<InFlightD
     }
   }
 
-  return TupleType::get(getContext(), flattenedElems);
+  return TupleType::get(ctx, flattenedElems);
 }
 
 LogicalResult FlattenOp::verify() {
@@ -1027,7 +1066,7 @@ LogicalResult FlattenOp::verify() {
            << inputTy;
 
   // try to compute known-arity result type if possible
-  auto inferred = inferKnownArityResultType([&]() { return emitOpError(); });
+  auto inferred = inferKnownArityResultType(getInput().getType(), getContext(), [&]() { return emitOpError(); });
   if (succeeded(inferred)) {
     Type expected = *inferred;
 
@@ -1049,12 +1088,26 @@ LogicalResult FlattenOp::verify() {
   return success();
 }
 
-FailureOr<SmallVector<Type>> FlattenOp::specializeResultTypes() {
-  // try to infer a concrete result type
-  auto inferred = inferKnownArityResultType();
+LogicalResult FlattenOp::inferReturnTypes(
+    MLIRContext *ctx, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // Fails when the outer tuple or any element is polymorphic TupleLike:
+  // the flattened arity is unknown there and the result would be a fresh
+  // PolyType, which inference refuses to mint.
+  auto inferred = inferKnownArityResultType(operands[0].getType(), ctx);
   if (failed(inferred))
     return failure();
-  return SmallVector<Type>{*inferred};
+  inferredReturnTypes.push_back(*inferred);
+  return success();
+}
+
+LogicalResult FlattenOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<FlattenOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 
@@ -1473,18 +1526,31 @@ FailureOr<Type> LastOp::inferResultType(Type inputTy, function_ref<InFlightDiagn
   return tupleTy.getType(tupleTy.size() - 1);
 }
 
-FailureOr<SmallVector<Type>> LastOp::specializeResultTypes() {
-  // is the input concrete?
-  auto tupleTy = dyn_cast<TupleType>(getInput().getType());
-  if (!tupleTy)
+LogicalResult LastOp::inferReturnTypes(
+    MLIRContext *, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // Inference is deterministic: it fails rather than mint a fresh
+  // PolyType. An opaque polymorphic tuple has no determined element type,
+  // so that case is construction's job (pass an explicit result type).
+  Type inputTy = operands[0].getType();
+  if (isa<PolyType>(inputTy))
     return failure();
 
-  // try to infer a concrete result type
-  auto inferred = inferResultType(tupleTy);
+  auto inferred = inferResultType(inputTy);
   if (failed(inferred))
     return failure();
 
-  return SmallVector<Type>{*inferred};
+  inferredReturnTypes.push_back(*inferred);
+  return success();
+}
+
+LogicalResult LastOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<LastOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 LogicalResult LastOp::verify() {
@@ -1534,10 +1600,26 @@ LogicalResult MakeOp::verify() {
   return success();
 }
 
-FailureOr<SmallVector<Type>> MakeOp::specializeResultTypes() {
-  auto tupleTy = TupleType::get(getContext(), getOperandTypes());
-  SmallVector<Type> result{tupleTy};
-  return result;
+LogicalResult MakeOp::inferReturnTypes(
+    MLIRContext *ctx, std::optional<Location>, ValueRange operands,
+    DictionaryAttr, OpaqueProperties, RegionRange,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // Total: the result is the tuple of the operand types, determined even
+  // when operands mention polymorphism -- no fresh PolyType is needed.
+  SmallVector<Type> elementTypes;
+  elementTypes.reserve(operands.size());
+  for (Value e : operands)
+    elementTypes.push_back(e.getType());
+  inferredReturnTypes.push_back(TupleType::get(ctx, elementTypes));
+  return success();
+}
+
+LogicalResult MakeOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<MakeOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 

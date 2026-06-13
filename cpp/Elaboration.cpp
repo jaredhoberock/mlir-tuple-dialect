@@ -440,8 +440,12 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
       Value elem = newBody->getArgument(1);
 
       // %acc = tuple.last %prev : !P -> !A
+      // The accumulator type is a fresh poly var: minted here explicitly,
+      // because inference refuses to invent ids (the input is an opaque
+      // poly tuple, so the element type is not determined by it).
+      Type accTy = trait::PolyType::getUnique(ctx);
       rewriter.setInsertionPointToStart(newBody);
-      Value acc = LastOp::create(rewriter, loc, prev);
+      Value acc = LastOp::create(rewriter, loc, accTy, prev);
 
       // inline the original body, remapping:
       // old %acc -> %acc
@@ -457,8 +461,12 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
       Value yielded = oldYield.getOperand();
 
       // %next = tuple.append %prev, %yielded : !P, !Y -> !N
+      // The appended type is a fresh poly var: minted here explicitly,
+      // because inference refuses to invent ids (the input is an opaque
+      // poly tuple, so the result type is not determined by it).
+      Type nextTy = PolyType::getUnique(ctx);
       rewriter.setInsertionPoint(oldYield);
-      Value next = AppendOp::create(rewriter, loc, prev, yielded);
+      Value next = AppendOp::create(rewriter, loc, nextTy, prev, yielded);
 
       // yield %next : !N
       rewriter.replaceOpWithNewOp<YieldOp>(oldYield, next);

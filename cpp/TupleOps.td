@@ -5,11 +5,11 @@
 
 include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
+include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/IR/OpAsmInterface.td"
 include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
-include "TraitOpInterfaces.td"
 include "TraitTypes.td"
 include "Tuple.td"
 include "TupleEnums.td"
@@ -76,7 +76,7 @@ def AllOp : TupleOp<"all", [
 
 def AppendOp : TupleOp<"append", [
   Pure,
-  ResultTypeSpecializationOpInterface
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
 ]> {
   let summary = "Append a element to the end of a tuple";
   let description = [{
@@ -91,19 +91,7 @@ def AppendOp : TupleOp<"append", [
 
   let extraClassDeclaration = [{
     static FailureOr<Type> inferResultType(Type tupleTy, Type elementTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
-
-    // for ResultTypeSpecializationOpInterface
-    FailureOr<SmallVector<Type>> specializeResultTypes();
   }];
-
-  let builders = [
-    // infers the result type
-    OpBuilder<(ins "Value":$tuple, "Value":$element), [{
-      auto maybeResTy = AppendOp::inferResultType(tuple.getType(), element.getType());
-      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
-      build($_builder, $_state, resTy, tuple, element);
-    }]>
-  ];
 }
 
 def CatOp : TupleOp<"cat", [Pure]> {
@@ -151,15 +139,7 @@ def CmpOp : TupleOp<"cmp", [
   let results = (outs I1);
 
   let builders = [
-    // with claims
-    OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs, "Value":$claims), [{
-      build($_builder, $_state,
-            $_builder.getI1Type(),
-            $_builder.getAttr<::mlir::tuple::CmpPredicateAttr>(predicate),
-            lhs, rhs, claims);
-    }]>,
-
-    // without claims
+    // without claims; the generated builders cover the with-claims form
     OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs), [{
       build($_builder, $_state,
             predicate, lhs, rhs,
@@ -200,7 +180,7 @@ def CmpOp : TupleOp<"cmp", [
 
 def DropLastOp : TupleOp<"drop_last", [
   Pure,
-  ResultTypeSpecializationOpInterface,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>,
 ]> {
   let summary = "Remove the last element from a tuple";
   let description = [{
@@ -216,18 +196,7 @@ def DropLastOp : TupleOp<"drop_last", [
 
   let extraClassDeclaration = [{
     static FailureOr<Type> inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
-
-    // For ResultTypeSpecializationOpInterface
-    FailureOr<SmallVector<Type>> specializeResultTypes();
   }];
-
-  let builders = [
-    OpBuilder<(ins "Value":$input), [{
-      auto maybeResTy = DropLastOp::inferResultType(input.getType());
-      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
-      build($_builder, $_state, resTy, input);
-    }]>
-  ];
 }
 
 def ExclusiveScanOp : TupleOp<"exclusive_scan", [
@@ -298,7 +267,7 @@ def ExclusiveScanOp : TupleOp<"exclusive_scan", [
 
 def FlattenOp : TupleOp<"flatten", [
   Pure,
-  ResultTypeSpecializationOpInterface,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>,
 ]> {
   let summary = "One-level flattening of a tuple of tuples";
   let description = [{
@@ -313,10 +282,7 @@ def FlattenOp : TupleOp<"flatten", [
   let hasVerifier = 1;
 
   let extraClassDeclaration = [{
-    FailureOr<TupleType> inferKnownArityResultType(function_ref<InFlightDiagnostic()> errFn = nullptr);
-
-    // for ResultTypeSpecializationOpInterface
-    FailureOr<SmallVector<Type>> specializeResultTypes();
+    static FailureOr<TupleType> inferKnownArityResultType(Type inputTy, MLIRContext *ctx, function_ref<InFlightDiagnostic()> errFn = nullptr);
   }];
 }
 
@@ -383,7 +349,7 @@ def FlatMapOp : TupleOp<"flat_map", [
 
 def DowncastOp : TupleOp<"downcast", [
   Pure,
-  DeclareOpInterfaceMethods<ResultTypeSpecializationOpInterface>,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>
 ]> {
   let summary = "Downcast !trait.poly to !tuple.poly given a Tuple claim";
@@ -506,7 +472,7 @@ def GetOp : TupleOp<"get", [Pure]> {
 
 def LastOp : TupleOp<"last", [
   Pure,
-  ResultTypeSpecializationOpInterface
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
 ]> {
   let summary = "Extract the last element from a tuple";
   let description = [{
@@ -518,26 +484,15 @@ def LastOp : TupleOp<"last", [
 
   let extraClassDeclaration = [{
     static FailureOr<Type> inferResultType(Type inputTy, function_ref<InFlightDiagnostic()> errFn = nullptr);
-    
-    // for ResultTypeSpecializationOpInterface
-    FailureOr<SmallVector<Type>> specializeResultTypes();
   }];
 
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result)";
   let hasVerifier = 1;
-
-  let builders = [
-    OpBuilder<(ins "Value":$input), [{
-      auto maybeResTy = LastOp::inferResultType(input.getType());
-      Type resTy = succeeded(maybeResTy) ? *maybeResTy : Type();
-      build($_builder, $_state, resTy, input);
-    }]>
-  ];
 }
 
 def MakeOp : TupleOp<"make", [
   Pure,
-  ResultTypeSpecializationOpInterface
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
 ]> {
   let summary = "Construct a tuple value";
   let description = [{
@@ -551,22 +506,6 @@ def MakeOp : TupleOp<"make", [
   let assemblyFormat = "attr-dict (`(` $elements^ `:` type($elements) `)`)? `:` type($result)";
 
   let hasVerifier = 1;
-
-  let extraClassDeclaration = [{
-    // for ResultTypeSpecializationOpInterface
-    FailureOr<SmallVector<Type>> specializeResultTypes();
-  }];
-
-  let builders = [
-    OpBuilder<(ins "ValueRange":$elements), [{
-      SmallVector<Type> elementTypes;
-      elementTypes.reserve(elements.size());
-      for (Value e : elements)
-        elementTypes.push_back(e.getType());
-      auto tupleTy = ::mlir::TupleType::get($_builder.getContext(), elementTypes);
-      build($_builder, $_state, tupleTy, elements);
-    }]>
-  ];
 }
 
 def MapOp : TupleOp<"map", [
