@@ -2,6 +2,7 @@
 name = "mlir-tuple-dialect"
 version = "0.2.0"
 edition = "2024"
+links = "tuple_dialect"
 
 [dependencies]
 melior = "0.27"

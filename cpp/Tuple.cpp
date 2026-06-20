@@ -16,7 +16,7 @@
 #include <mlir/Transforms/InliningUtils.h>
 #include <Trait.hpp>
 
-#include "Tuple.cpp.inc"
+#include <Tuple.cpp.inc>
 
 namespace mlir::tuple {
 
@@ -72,7 +72,7 @@ struct TupleInlinerInterface : public DialectInlinerInterface {
 void TupleDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "TupleOps.cpp.inc"
+#include <TupleOps.cpp.inc>
   >();
 
   registerTypes();

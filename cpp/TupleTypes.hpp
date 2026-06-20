@@ -8,7 +8,7 @@
 #include <TraitTypes.hpp>
 
 #define GET_TYPEDEF_CLASSES
-#include "TupleTypes.hpp.inc"
+#include <TupleTypes.hpp.inc>
 
 namespace mlir::tuple {
 

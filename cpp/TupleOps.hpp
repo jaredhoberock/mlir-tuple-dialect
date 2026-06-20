@@ -10,4 +10,4 @@
 #include <TraitOps.hpp>
 
 #define GET_OP_CLASSES
-#include "TupleOps.hpp.inc"
+#include <TupleOps.hpp.inc>

@@ -10,7 +10,7 @@
 #include <TraitTypes.hpp>
 
 #define GET_TYPEDEF_CLASSES
-#include "TupleTypes.cpp.inc"
+#include <TupleTypes.cpp.inc>
 
 namespace mlir::tuple {
 
@@ -18,7 +18,7 @@ namespace mlir::tuple {
 void TupleDialect::registerTypes() {
   addTypes<
 #define GET_TYPEDEF_LIST
-#include "TupleTypes.cpp.inc"
+#include <TupleTypes.cpp.inc>
   >();
 }
 

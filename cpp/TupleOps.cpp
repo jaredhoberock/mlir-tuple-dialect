@@ -8,7 +8,7 @@
 #include <TraitTypes.hpp>
 
 #define GET_OP_CLASSES
-#include "TupleOps.cpp.inc"
+#include <TupleOps.cpp.inc>
 
 namespace mlir::tuple {
 
