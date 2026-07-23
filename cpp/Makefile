@@ -19,6 +19,7 @@ INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(TRAIT_DIALEC
 DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
 PLUGIN_OBJECTS := $(DIALECT_OBJECTS) $(BUILD_DIR)/Plugin.o
+DEPS := $(PLUGIN_OBJECTS:.o=.d)
 TD_FILES := $(wildcard *.td)
 
 GENERATED := \
@@ -63,7 +64,7 @@ $(BUILD_DIR)/TupleTypes.cpp.inc: TupleTypes.td $(TD_FILES) | $(BUILD_DIR)
 	$(TBLGEN) --gen-typedef-defs $(INCLUDES) $< -o $@
 
 $(BUILD_DIR)/%.o: %.cpp $(GENERATED) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/libtuple_dialect.a: $(DIALECT_OBJECTS)
 	ar rcs $@ $^
@@ -76,3 +77,5 @@ test: $(BUILD_DIR)/libtuple_dialect.so
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+-include $(DEPS)
