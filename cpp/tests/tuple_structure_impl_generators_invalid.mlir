@@ -11,7 +11,7 @@ trait.trait @tuple.HomogeneousTuple[!T] attributes {
   trait.assoc_type @Element
 }
 
-// expected-error @+1 {{failed to legalize operation 'func.func' that was explicitly marked illegal}}
+// expected-error @+1 {{after instantiate-monomorphs}}
 func.func @homogeneous_mixed_rejected(
     %x: !trait.proj<@tuple.HomogeneousTuple[tuple<i64, i1>], "Element">)
     -> !trait.proj<@tuple.HomogeneousTuple[tuple<i64, i1>], "Element"> {

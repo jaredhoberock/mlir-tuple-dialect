@@ -161,7 +161,9 @@ LogicalResult AllOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned ar
     FunctionType callerTy = getFunctionTypeForIteration(i);
 
     // unify body formal with actual for this iteration
-    if (failed(trait::buildSpecialization(calleeTy, callerTy, module, err)))
+    // A verifier compares spellings with no module (module-free comparator):
+    // no mid-verify ground-redex resolution; lowering keeps the real module.
+    if (failed(trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err)))
       return failure();
   }
   return success();
@@ -568,7 +570,9 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (failed(formalClaimsTy)) return failure();
 
   // check that the types can unify
-  if (failed(trait::buildSpecialization(*formalClaimsTy, claims.getType(), module, errFn)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(*formalClaimsTy, claims.getType(), ModuleOp(), errFn)))
     return failure();
 
   return success();
@@ -770,7 +774,9 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   Type YieldFormal = calleeTy.getResult(0);
 
   // body must preserve accumulator shape
-  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, module, err)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, ModuleOp(), err)))
     return failure();
 
   // thread accumulator type across iterations, collecting result element types
@@ -783,7 +789,9 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   for (unsigned i = 0; i < arity; ++i) {
     FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
+    // A verifier compares spellings with no module (module-free comparator):
+    // no mid-verify ground-redex resolution; lowering keeps the real module.
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
     if (failed(subst))
       return failure();
 
@@ -811,7 +819,9 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
 
   // The accumulator formal must be compatible with the init type.
   // This ensures the body can accept the initial value.
-  if (failed(trait::buildSpecialization(AccFormal, initActual, module, err)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(AccFormal, initActual, ModuleOp(), err)))
     return failure();
 
   // When arity is unknown, we can't verify each element type individually.
@@ -822,7 +832,9 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
 
   // The body must preserve the accumulator's shape: what goes in must come out.
   // This ensures the accumulator type is consistent across all iterations.
-  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, module, err)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, ModuleOp(), err)))
     return failure();
 
   // Result must be polymorphic when input is polymorphic
@@ -1258,7 +1270,9 @@ LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigne
     FunctionType callerTy = getFunctionTypeForIteration(i);
 
     // unify body formal with actual for this iteration
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
+    // A verifier compares spellings with no module (module-free comparator):
+    // no mid-verify ground-redex resolution; lowering keeps the real module.
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
     if (failed(subst))
       return failure();
 
@@ -1405,7 +1419,9 @@ LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned 
     FunctionType callerTy = getFunctionTypeForIteration(i, prev);
 
     // unify each iteration in isolation as if it was a separate function call
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, module, err);
+    // A verifier compares spellings with no module (module-free comparator):
+    // no mid-verify ground-redex resolution; lowering keeps the real module.
+    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
     if (failed(subst)) return failure();
 
     // update the previous result type by applying the substitution
@@ -1414,7 +1430,9 @@ LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned 
   }
 
   // unify the formal result type with the actual final result type
-  return trait::buildSpecialization(getResult().getType(), prev, module, err);
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  return trait::buildSpecialization(getResult().getType(), prev, ModuleOp(), err);
 }
 
 LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
@@ -1429,7 +1447,9 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   Type resultFormal     = getResult().getType(); // op's formal result type
 
   // must be able to specialize the formal acc with the actual init type
-  if (failed(trait::buildSpecialization(accFormal, initActual, module, err)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(accFormal, initActual, ModuleOp(), err)))
     return failure();
 
   // every non-accumulator body arg type must be purely polymorphic
@@ -1441,11 +1461,15 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   }
 
   // closure: one step of the body must preserve the accumulator shape
-  if (failed(trait::buildSpecialization(accFormal, yieldFormal, module, err)))
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  if (failed(trait::buildSpecialization(accFormal, yieldFormal, ModuleOp(), err)))
     return failure();
 
   // op result consistency: op's formal result must match the accumulator
-  return trait::buildSpecialization(resultFormal, accFormal, module, err);
+  // A verifier compares spellings with no module (module-free comparator):
+  // no mid-verify ground-redex resolution; lowering keeps the real module.
+  return trait::buildSpecialization(resultFormal, accFormal, ModuleOp(), err);
 }
 
 YieldOp FoldlOp::bodyYield() {
@@ -1725,7 +1749,9 @@ LogicalResult MapOp::verifySymbolUsesWithKnownArity(ModuleOp module,
 
     // attempt unification between the body's formal type and
     // the actual caller type at this iteration
-    if (failed(trait::buildSpecialization(calleeTy, callerTy, module, err)))
+    // A verifier compares spellings with no module (module-free comparator):
+    // no mid-verify ground-redex resolution; lowering keeps the real module.
+    if (failed(trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err)))
       return failure();
   }
 
