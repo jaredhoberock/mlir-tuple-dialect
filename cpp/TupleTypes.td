@@ -72,9 +72,9 @@ def InferenceType : TypeDef<TupleDialect, "Inference", [
                         llvm::function_ref<InFlightDiagnostic()> emitError);
   }];
 
-  let parameters = (ins "uint64_t":$unique_id, "uint32_t":$origin_poly_id);
+  let parameters = (ins "uint64_t":$unique_id);
 
-  let assemblyFormat = "`<` $unique_id `,` $origin_poly_id `>`";
+  let assemblyFormat = "`<` $unique_id `>`";
 }
 
 #endif // TUPLE_TYPES_TD

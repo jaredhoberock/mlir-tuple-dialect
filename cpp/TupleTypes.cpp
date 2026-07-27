@@ -41,7 +41,7 @@ Type PolyType::instantiate(trait::InstantiationMap &inst, uint64_t &idCounter) {
     return *existing;
 
   // create and remember a fresh inference var for this poly
-  auto fresh = InferenceType::get(getContext(), idCounter++, getInner().getUniqueId());
+  auto fresh = InferenceType::get(getContext(), idCounter++);
   inst.bind(self, cast<trait::UnificationTypeInterface>(fresh));
   return fresh;
 }
