@@ -349,8 +349,7 @@ def FlatMapOp : TupleOp<"flat_map", [
 
 def DowncastOp : TupleOp<"downcast", [
   Pure,
-  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>,
-  DeclareOpInterfaceMethods<SymbolUserOpInterface>
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
 ]> {
   let summary = "Downcast !trait.poly to !tuple.poly given a Tuple claim";
   let description = [{

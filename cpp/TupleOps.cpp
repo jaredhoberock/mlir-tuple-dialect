@@ -193,28 +193,6 @@ LogicalResult DowncastOp::verify() {
       getResult().getType(), [&]() { return emitOpError(); });
 }
 
-LogicalResult DowncastOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
-  auto claimType = cast<trait::ClaimType>(getClaim().getType());
-  auto traitApp = claimType.getTraitApplication();
-  StringRef traitName = traitApp.getTraitName().getValue();
-  if (!isTupleStructureTrait(traitName))
-    return success();
-
-  // A tuple-structure downcast is justified by the source-level `Tuple` trait.
-  // Verifying the symbol here catches stale IR that carries a `@Tuple[...]`
-  // claim type but no corresponding trait declaration in the module.
-  ModuleOp module = getOperation()->getParentOfType<ModuleOp>();
-  if (!module)
-    return emitOpError("not inside of a module");
-  if (!SymbolTable::lookupNearestSymbolFrom<trait::TraitOp>(
-          module, traitApp.getTraitName())) {
-    return emitOpError() << "couldn't find trait.trait '"
-                         << traitApp.getTraitName() << "'";
-  }
-
-  return success();
-}
-
 LogicalResult DowncastOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
     DictionaryAttr, OpaqueProperties, RegionRange,
