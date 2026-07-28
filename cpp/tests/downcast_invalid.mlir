@@ -116,13 +116,14 @@ func.func @homogeneous_tuple_claim(
 }
 
 // -----
-// tuple.downcast requires the source Tuple trait symbol to be present
+// tuple.downcast requires the source Tuple trait symbol to be present; an
+// absent trait is caught when the claim's symbol uses are verified.
 
+// expected-error @below {{cannot find trait '@Tuple'}}
 func.func @missing_tuple_trait(
   %arg0: !trait.poly<0>,
   %arg1: !trait.claim<@Tuple[!trait.poly<0>]>
 ) -> !tuple.poly<0> {
-  // expected-error @+1 {{couldn't find trait.trait '@Tuple'}}
   %res = tuple.downcast %arg0, %arg1 : !trait.poly<0>, !trait.claim<@Tuple[!trait.poly<0>]> -> !tuple.poly<0>
   return %res : !tuple.poly<0>
 }
