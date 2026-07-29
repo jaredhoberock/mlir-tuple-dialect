@@ -117,7 +117,7 @@ struct TupleGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
-               PatternRewriter &rewriter) const override {
+               OpBuilder &builder) const override {
     using namespace mlir::trait;
 
     // The source bridge selects this generator with tuple.impl_generator =
@@ -137,8 +137,8 @@ struct TupleGenerator : trait::ImplGenerator {
     if (!module)
       return failure();
 
-    MLIRContext *ctx = rewriter.getContext();
-    Location loc = rewriter.getUnknownLoc();
+    MLIRContext *ctx = builder.getContext();
+    Location loc = builder.getUnknownLoc();
     auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
     auto claim = ClaimType::get(ctx, traitRef, {selfTy});
     auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
@@ -149,9 +149,9 @@ struct TupleGenerator : trait::ImplGenerator {
         return failure();
 
     // Tuple has no methods or associated types, so the impl body stays empty.
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToEnd(module.getBody());
-    return ImplOp::create(rewriter, loc, implName,
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(module.getBody());
+    return ImplOp::create(builder, loc, implName,
                           claim.getTraitApplication(),
                           ArrayRef<TraitApplicationAttr>{});
   }
@@ -166,7 +166,7 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
-               PatternRewriter &rewriter) const override {
+               OpBuilder &builder) const override {
     using namespace mlir::trait;
 
     // The source bridge selects this generator with tuple.impl_generator =
@@ -188,8 +188,8 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
     if (!module)
       return failure();
 
-    MLIRContext *ctx = rewriter.getContext();
-    Location loc = rewriter.getUnknownLoc();
+    MLIRContext *ctx = builder.getContext();
+    Location loc = builder.getUnknownLoc();
     auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
     auto claim = ClaimType::get(ctx, traitRef, {tupleTy});
     auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
@@ -200,16 +200,16 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
         return failure();
 
     // The impl body contains only the Element associated-type binding.
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToEnd(module.getBody());
-    ImplOp impl = ImplOp::create(rewriter, loc, implName,
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(module.getBody());
+    ImplOp impl = ImplOp::create(builder, loc, implName,
                                  claim.getTraitApplication(),
                                  ArrayRef<TraitApplicationAttr>{});
 
     Block &body = impl.getBody().front();
-    OpBuilder::InsertionGuard bodyGuard(rewriter);
-    rewriter.setInsertionPointToStart(&body);
-    AssocTypeOp::create(rewriter, loc, "Element",
+    OpBuilder::InsertionGuard bodyGuard(builder);
+    builder.setInsertionPointToStart(&body);
+    AssocTypeOp::create(builder, loc, "Element",
                         TypeAttr::get(*elementTy), ArrayAttr{});
     return impl;
   }
@@ -260,7 +260,7 @@ struct MapGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
-               PatternRewriter &rewriter) const override {
+               OpBuilder &builder) const override {
     using namespace mlir::trait;
 
     // trait must opt into this generator and have at least 2 type args
@@ -318,12 +318,12 @@ struct MapGenerator : trait::ImplGenerator {
     });
 
     // synthesize the trait.impl
-    auto loc = rewriter.getUnknownLoc();
+    auto loc = builder.getUnknownLoc();
     auto name = (trait.getSymName() + Twine("_impl_arity") + Twine(*arity)).str();
 
-    OpBuilder::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToEnd(module.getBody());
-    ImplOp impl = ImplOp::create(rewriter, 
+    OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(module.getBody());
+    ImplOp impl = ImplOp::create(builder, 
       loc,
       StringAttr::get(ctx, name),
       ourClaim.getTraitApplication(),
@@ -339,12 +339,12 @@ struct MapGenerator : trait::ImplGenerator {
     //         return %res
     {
       Block &implBody = impl.getBody().front();
-      OpBuilder::InsertionGuard guard(rewriter);
-      rewriter.setInsertionPointToStart(&implBody);
+      OpBuilder::InsertionGuard guard(builder);
+      builder.setInsertionPointToStart(&implBody);
 
       // func.func private @claims() -> tupleOfClaims
       FunctionType claimsFnTy = FunctionType::get(ctx, {}, tupleOfClaims);
-      auto claimsFunc = func::FuncOp::create(rewriter, 
+      auto claimsFunc = func::FuncOp::create(builder, 
         loc,
         "claims",
         claimsFnTy
@@ -353,20 +353,20 @@ struct MapGenerator : trait::ImplGenerator {
 
       // build function body
       Block *entry = claimsFunc.addEntryBlock();
-      rewriter.setInsertionPointToStart(entry);
+      builder.setInsertionPointToStart(entry);
 
       // emit trait.assume for each type in the tuple of claims type
       SmallVector<Value> elements;
       for (ClaimType c : claims) {
-        auto assume = AssumeOp::create(rewriter, loc, c);
+        auto assume = AssumeOp::create(builder, loc, c);
         elements.push_back(assume.getResult());
       }
 
       // tuple.make of all claims
-      auto result = MakeOp::create(rewriter, loc, elements);
+      auto result = MakeOp::create(builder, loc, elements);
 
       // return
-      func::ReturnOp::create(rewriter, loc, result.getResult());
+      func::ReturnOp::create(builder, loc, result.getResult());
     }
 
     return impl;
@@ -378,7 +378,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
-               PatternRewriter &rewriter) const override {
+               OpBuilder &builder) const override {
     using namespace trait;
 
     // generate the following impl if 
@@ -408,7 +408,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
     if (!module)
       return failure();
 
-    MLIRContext *ctx = rewriter.getContext();
+    MLIRContext *ctx = builder.getContext();
 
     // if the impl "tuple.PartialEq" already exists, do nothing
     StringRef implName = "tuple.PartialEq";
@@ -435,8 +435,8 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
     auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
 
     // create impl
-    Location loc = rewriter.getUnknownLoc();
-    auto impl = ImplOp::create(rewriter, 
+    Location loc = builder.getUnknownLoc();
+    auto impl = ImplOp::create(builder, 
       loc,
       implName,
       ourClaim.getTraitApplication(),
@@ -446,23 +446,23 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
     // define method: func private @eq(%self: !S, %other: !O) -> i1
     {
       Block &body = impl.getBody().front();
-      rewriter.setInsertionPointToStart(&body);
+      builder.setInsertionPointToStart(&body);
 
-      auto i1 = rewriter.getI1Type();
-      auto eqTy = rewriter.getFunctionType({S,O}, i1);
-      auto eqFn = func::FuncOp::create(rewriter, loc, "eq", eqTy);
+      auto i1 = builder.getI1Type();
+      auto eqTy = builder.getFunctionType({S,O}, i1);
+      auto eqFn = func::FuncOp::create(builder, loc, "eq", eqTy);
       eqFn.setPrivate();
 
       Block *entry = eqFn.addEntryBlock();
-      rewriter.setInsertionPointToStart(entry);
+      builder.setInsertionPointToStart(entry);
       Value self = entry->getArgument(0);
       Value other = entry->getArgument(1);
 
       // %a = trait.assume @tuple.MapPartialEq[!S,!O,!C]
-      Value a = AssumeOp::create(rewriter, loc, assumption);
+      Value a = AssumeOp::create(builder, loc, assumption);
 
       // %claims = trait.method.call %a @tuple.MapPartialEq[!S,!O,!C]::@claims() : () -> !C
-      Value claims = MethodCallOp::create(rewriter, 
+      Value claims = MethodCallOp::create(builder, 
         loc,
         /*results=*/TypeRange{C},
         /*traitName=*/"tuple.MapPartialEq",
@@ -472,14 +472,14 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
       ).getResult(0);
 
       // %res = tuple.cmp eq, %self, %other, %claims : !S, !O, !C
-      Value res = CmpOp::create(rewriter, 
+      Value res = CmpOp::create(builder, 
         loc,
         CmpPredicate::eq,
         self, other, claims
       );
 
       // return %res : i1
-      func::ReturnOp::create(rewriter, loc, res);
+      func::ReturnOp::create(builder, loc, res);
     }
 
     return impl;
@@ -504,7 +504,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
-               PatternRewriter &rewriter) const override {
+               OpBuilder &builder) const override {
     using namespace trait;
 
     // only for PartialOrd
@@ -515,7 +515,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
     if (!module)
       return failure();
 
-    MLIRContext* ctx = rewriter.getContext();
+    MLIRContext* ctx = builder.getContext();
 
     // if the impl already exists, do nothing
     StringRef implName = "tuple.PartialOrd";
@@ -542,8 +542,8 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
     auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
 
     // create the impl op
-    Location loc = rewriter.getUnknownLoc();
-    auto impl = ImplOp::create(rewriter, 
+    Location loc = builder.getUnknownLoc();
+    auto impl = ImplOp::create(builder, 
       loc,
       implName,
       ourClaim.getTraitApplication(),
@@ -552,26 +552,26 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
     // helper to define one of lt/le/gt/ge with tuple.cmp + mapped claims
     auto buildCmpMethod = [&](StringRef methodName, tuple::CmpPredicate pred) {
-      PatternRewriter::InsertionGuard guard(rewriter);
+      OpBuilder::InsertionGuard guard(builder);
 
       Block &body = impl.getBody().front();
-      rewriter.setInsertionPointToStart(&body);
+      builder.setInsertionPointToStart(&body);
 
-      auto i1 = rewriter.getI1Type();
-      auto fnTy = rewriter.getFunctionType({S,O}, i1);
-      auto fn = func::FuncOp::create(rewriter, loc, methodName, fnTy);
+      auto i1 = builder.getI1Type();
+      auto fnTy = builder.getFunctionType({S,O}, i1);
+      auto fn = func::FuncOp::create(builder, loc, methodName, fnTy);
       fn.setPrivate();
 
       Block *entry = fn.addEntryBlock();
-      rewriter.setInsertionPointToStart(entry);
+      builder.setInsertionPointToStart(entry);
       Value self = entry->getArgument(0);
       Value other = entry->getArgument(1);
 
       // %a = trait.assume @tuple.MapPartialOrd[!S,!O,!C]
-      Value a = AssumeOp::create(rewriter, loc, assumption);
+      Value a = AssumeOp::create(builder, loc, assumption);
 
       // %claims = trait.method.call %a @tuple.MapPartialOrd[!S,!O,!C]::@claims() : () -> !C
-      Value claims = MethodCallOp::create(rewriter, 
+      Value claims = MethodCallOp::create(builder, 
         loc,
         /*results=*/TypeRange{C},
         /*traitName=*/"tuple.MapPartialOrd",
@@ -581,10 +581,10 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
       ).getResult(0);
 
       // %res = tuple.cmp <pred>, %self, %other, %claims : !S, !O, !C
-      Value res = CmpOp::create(rewriter, loc, pred, self, other, claims);
+      Value res = CmpOp::create(builder, loc, pred, self, other, claims);
 
       // return %res : i1
-      func::ReturnOp::create(rewriter, loc, res);
+      func::ReturnOp::create(builder, loc, res);
     };
 
     // define all four methods
