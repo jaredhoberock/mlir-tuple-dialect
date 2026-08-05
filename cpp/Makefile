@@ -13,7 +13,9 @@ LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
 
 CXX := clang++
-CXXFLAGS := -Wall -Werror -fPIC $(shell $(LLVM_CONFIG) --cxxflags)
+# The install's llvm-config reports no optimization level; set -O2 as the
+# default here. Asserts stay on (no -DNDEBUG) -- the dialect verifiers are product.
+CXXFLAGS := -Wall -Werror -fPIC $(shell $(LLVM_CONFIG) --cxxflags) -O2
 INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(TRAIT_DIALECT_SOURCE_DIR) -I$(TRAIT_DIALECT_INCLUDE_DIR)
 
 DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
