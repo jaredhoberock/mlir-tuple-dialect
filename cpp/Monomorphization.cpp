@@ -97,7 +97,7 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
       loc,
       StringAttr::get(ctx, name),
       /*typeParams=*/ArrayRef{S, O, C},
-      /*requirements=*/trait::TraitApplicationArrayAttr::get(ctx, {})
+      /*requirements=*/trait::PredicateArrayAttr::get(ctx, ArrayRef<trait::TraitApplicationAttr>{})
     );
 
     // attach attributes for the map generator

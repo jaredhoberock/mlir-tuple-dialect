@@ -141,7 +141,7 @@ struct TupleGenerator : trait::ImplGenerator {
     Location loc = builder.getUnknownLoc();
     auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
     auto claim = ClaimType::get(ctx, traitRef, {selfTy});
-    auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
+    auto noAssumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{});
     std::string implName = ImplOp::generateSymName(
         claim.getTraitApplication(), noAssumptions);
     for (ImplOp existing : module.getOps<ImplOp>())
@@ -192,7 +192,7 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
     Location loc = builder.getUnknownLoc();
     auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
     auto claim = ClaimType::get(ctx, traitRef, {tupleTy});
-    auto noAssumptions = TraitApplicationArrayAttr::get(ctx, {});
+    auto noAssumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{});
     std::string implName = ImplOp::generateSymName(
         claim.getTraitApplication(), noAssumptions);
     for (ImplOp existing : module.getOps<ImplOp>())
@@ -327,7 +327,7 @@ struct MapGenerator : trait::ImplGenerator {
       loc,
       StringAttr::get(ctx, name),
       ourClaim.getTraitApplication(),
-      TraitApplicationArrayAttr::get(ctx, assumptions)
+      PredicateArrayAttr::get(ctx, assumptions)
     );
 
     // define the @claims method body:
@@ -432,7 +432,7 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
 
     // one assumption: @tuple.MapPartialEq[!S,!O,!C]
     auto assumption = TraitApplicationAttr::get(ctx, mapPartialEqRef, {S,O,C});
-    auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
+    auto assumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{assumption});
 
     // create impl
     Location loc = builder.getUnknownLoc();
@@ -539,7 +539,7 @@ struct TuplePartialOrdGenerator : trait::ImplGenerator {
 
     // one assumption on the mapper: @tuple.MapPartialOrd[!S,!O,!C]
     auto assumption = TraitApplicationAttr::get(ctx, mapRef, {S, O, C});
-    auto assumptions = TraitApplicationArrayAttr::get(ctx, {assumption});
+    auto assumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{assumption});
 
     // create the impl op
     Location loc = builder.getUnknownLoc();
