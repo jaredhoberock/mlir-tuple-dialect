@@ -11,6 +11,14 @@ class RewritePatternSet;
 
 namespace tuple {
 
+// Registers the tuple-owned type conversions on an LLVM type converter: a
+// tuple maps to the LLVM literal struct it lowers to, and a type that merely
+// contains a tuple is rebuilt around the converted tuple. This is the one
+// definition of the tuple->struct mapping; the data-layout model reuses it to
+// recover the struct a tuple lowers to, so a tuple's layout and its lowering
+// agree by construction.
+void populateTupleToLLVMTypeConversions(LLVMTypeConverter& typeConverter);
+
 void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter,
                                            RewritePatternSet& patterns);
 

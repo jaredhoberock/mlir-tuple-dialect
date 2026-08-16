@@ -76,6 +76,7 @@ void TupleDialect::initialize() {
   >();
 
   registerTypes();
+  registerTupleDataLayoutInterface(getContext());
 
   addInterfaces<
     ConvertToLLVMInterface,

@@ -124,7 +124,9 @@ struct ConvertAnyOpWithTupleTypes : public ConversionPattern {
 
 /// Adds only tuple-owned type conversions. TupleType lowers to an LLVM literal
 /// struct; other structural types are rebuilt only when they contain TupleType.
-static void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
+/// This is the sole definition of the tuple->struct mapping -- the data-layout
+/// model reuses it, so a tuple's layout answers agree with its lowering.
+void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
   typeConverter.addConversion([&](Type type) -> std::optional<Type> {
     if (isa<TupleType>(type))
       return std::nullopt;
@@ -156,6 +158,9 @@ static void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter)
   });
 
   typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
+    // LLVM has no zero-width type, so the empty tuple lowers to an i8. The
+    // data-layout model reads this same mapping, so the empty tuple lays out
+    // as that i8.
     if (tupleTy.getTypes().empty())
       return IntegerType::get(tupleTy.getContext(), 8);
 

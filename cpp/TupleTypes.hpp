@@ -43,4 +43,9 @@ inline bool isTupleLike(Type ty) {
   return false;
 }
 
+// Attaches the data-layout model for the builtin tuple type. Its size and
+// alignment answers match the LLVM literal struct the tuple lowers to, so any
+// data-layout query over tuple-typed IR agrees with the eventual lowering.
+void registerTupleDataLayoutInterface(MLIRContext* ctx);
+
 } // end mlir::trait
