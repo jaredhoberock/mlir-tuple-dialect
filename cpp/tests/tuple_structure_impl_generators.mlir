@@ -5,11 +5,11 @@
 
 !T = !trait.poly<0>
 
-trait.trait @tuple.Tuple[!T] attributes {
+trait.trait private @tuple.Tuple[!T] attributes {
   tuple.impl_generator = "tuple"
 } {}
 
-trait.trait @tuple.HomogeneousTuple[!T] attributes {
+trait.trait private @tuple.HomogeneousTuple[!T] attributes {
   tuple.impl_generator = "homogeneous_tuple"
 } {
   trait.assoc_type @Element

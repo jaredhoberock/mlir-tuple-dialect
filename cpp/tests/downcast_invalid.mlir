@@ -4,7 +4,7 @@
 // claim for one variable cannot downcast another
 
 !T = !trait.poly<0>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @wrong_value_poly(
   %arg0: !trait.poly<1>,
@@ -19,7 +19,7 @@ func.func @wrong_value_poly(
 // the result must preserve the rewritten variable identity
 
 !T = !trait.poly<0>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @wrong_result_poly(
   %arg0: !trait.poly<0>,
@@ -34,7 +34,7 @@ func.func @wrong_result_poly(
 // polymorphic downcast must actually introduce a tuple-polymorphic view
 
 !T = !trait.poly<0>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @no_rewrite(
   %arg0: !trait.poly<0>,
@@ -49,7 +49,7 @@ func.func @no_rewrite(
 // concrete tuple claims are only valid as identity conversions
 
 !T = !trait.poly<0>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @concrete_claim_value_mismatch(
   %arg0: tuple<i64>,
@@ -64,7 +64,7 @@ func.func @concrete_claim_value_mismatch(
 // tuple-structure claims must name exactly the tuple type being proven
 
 !T = !trait.poly<0>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @tuple_claim_wrong_arity(
   %arg0: !trait.poly<0>,
@@ -80,7 +80,7 @@ func.func @tuple_claim_wrong_arity(
 
 !T = !trait.poly<0>
 !P = tuple<!trait.poly<0>>
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
 func.func @tuple_claim_non_bare_poly(
   %arg0: !P,

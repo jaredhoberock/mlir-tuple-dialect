@@ -8,17 +8,17 @@
 // instantiation of a distinct callee per element type (i32 vs f32).
 
 !S = !trait.poly<0>
-trait.trait @Id[!S] {
+trait.trait private @Id[!S] {
   func.func nested @id(%self: !S) -> !S
 }
 
-trait.impl for @Id[i32] {
+trait.impl private for @Id[i32] {
   func.func nested @id(%self: i32) -> i32 {
     return %self : i32
   }
 }
 
-trait.impl for @Id[f32] {
+trait.impl private for @Id[f32] {
   func.func nested @id(%self: f32) -> f32 {
     return %self : f32
   }

@@ -5,18 +5,18 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait @PartialEq[!S,!O] {
+trait.trait private @PartialEq[!S,!O] {
   func.func private @eq(!S,!O) -> i1
 }
 
-trait.impl for @PartialEq[i32,i32] {
+trait.impl private for @PartialEq[i32,i32] {
   func.func @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
     return %res : i1
   }
 }
 
-trait.impl for @PartialEq[f64,f64] {
+trait.impl private for @PartialEq[f64,f64] {
   func.func @eq(%self: f64, %other: f64) -> i1 {
     %res = arith.cmpf oeq, %self, %other : f64
     return %res : i1
@@ -28,7 +28,7 @@ trait.impl for @PartialEq[f64,f64] {
 !MapPartialEqS = !trait.poly<2>
 !MapPartialEqO = !trait.poly<3>
 !MapPartialEqC = !trait.poly<4>
-trait.trait @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO,!MapPartialEqC] attributes {
+trait.trait private @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO,!MapPartialEqC] attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
@@ -41,7 +41,7 @@ trait.trait @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO,!MapPartialEqC] at
 !TC = !tuple.poly<7>
 !ES = !trait.poly<8>
 !EO = !trait.poly<9>
-trait.impl @tuple.PartialEq for @PartialEq[!TS,!TO] where [
+trait.impl private @tuple.PartialEq for @PartialEq[!TS,!TO] where [
   @tuple.MapPartialEq[!TS,!TO,!TC]
 ] {
   func.func @eq(%self: !TS, %other: !TO) -> i1 {

@@ -230,6 +230,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "mlir-lowering-driver"
+version = "0.1.0"
+dependencies = [
+ "melior",
+ "mlir-sys",
+]
+
+[[package]]
 name = "mlir-sys"
 version = "220.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -243,6 +251,7 @@ name = "mlir-trait-dialect"
 version = "0.2.0"
 dependencies = [
  "melior",
+ "mlir-lowering-driver",
  "mlir-sys",
 ]
 

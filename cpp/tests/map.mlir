@@ -44,17 +44,17 @@ func.func @map_i64_i64_to_f32_f32(%arg0: tuple<i64,i64>) -> tuple<f32,f32> {
 }
 
 !S = !trait.poly<0>
-trait.trait @Id[!S] {
+trait.trait private @Id[!S] {
   func.func nested @id(%self: !S) -> !S
 }
 
-trait.impl for @Id[i32] {
+trait.impl private for @Id[i32] {
   func.func nested @id(%self: i32) -> i32 {
     return %self : i32
   }
 }
 
-trait.impl for @Id[f32] {
+trait.impl private for @Id[f32] {
   func.func nested @id(%self: f32) -> f32 {
     return %self : f32
   }

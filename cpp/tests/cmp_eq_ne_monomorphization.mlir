@@ -23,7 +23,7 @@ func.func @cmp_ne_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait @PartialEq[!S,!O] {
+trait.trait private @PartialEq[!S,!O] {
   func.func private @eq(!S, !O) -> i1
 
   func.func @ne(%self: !S, %other: !O) -> i1 {
@@ -35,7 +35,7 @@ trait.trait @PartialEq[!S,!O] {
   }
 }
 
-trait.impl for @PartialEq[i32,i32] {
+trait.impl private for @PartialEq[i32,i32] {
   func.func private @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
     return %res : i1
@@ -64,7 +64,7 @@ func.func @cmp_ne_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl for @PartialEq[i64,i64] {
+trait.impl private for @PartialEq[i64,i64] {
   func.func private @eq(%self: i64, %other: i64) -> i1 {
     %res = arith.cmpi eq, %self, %other : i64
     return %res : i1

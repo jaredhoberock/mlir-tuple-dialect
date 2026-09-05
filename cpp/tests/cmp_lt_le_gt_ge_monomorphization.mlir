@@ -41,14 +41,14 @@ func.func @cmp_ge_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait @PartialOrd[!S,!O] {
+trait.trait private @PartialOrd[!S,!O] {
   func.func private @lt(!S, !O) -> i1
   func.func private @le(!S, !O) -> i1
   func.func private @gt(!S, !O) -> i1
   func.func private @ge(!S, !O) -> i1
 }
 
-trait.impl for @PartialOrd[i32,i32] {
+trait.impl private for @PartialOrd[i32,i32] {
   func.func private @lt(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi slt, %self, %other : i32
     return %res : i1
@@ -121,7 +121,7 @@ func.func @cmp_ge_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl for @PartialOrd[i64,i64] {
+trait.impl private for @PartialOrd[i64,i64] {
   func.func private @lt(%self: i64, %other: i64) -> i1 {
     %res = arith.cmpi slt, %self, %other : i64
     return %res : i1

@@ -24,7 +24,7 @@ fn append_partial_eq_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait @PartialEq[!trait.poly<0>,!trait.poly<1>] {
+    trait.trait private @PartialEq[!trait.poly<0>,!trait.poly<1>] {
       func.func private @eq(!trait.poly<0>, !trait.poly<1>) -> i1
     
       func.func private @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
@@ -53,7 +53,7 @@ fn append_partial_ord_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait @PartialOrd[!trait.poly<2>, !trait.poly<3>] {
+    trait.trait private @PartialOrd[!trait.poly<2>, !trait.poly<3>] {
       func.func private @lt(!trait.poly<2>, !trait.poly<3>) -> i1
       func.func private @le(!trait.poly<2>, !trait.poly<3>) -> i1
       func.func private @gt(!trait.poly<2>, !trait.poly<3>) -> i1
@@ -77,7 +77,7 @@ fn append_partial_eq_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl for @PartialEq[i32,i32]{
+    trait.impl private for @PartialEq[i32,i32]{
       func.func private @eq(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi eq, %self, %other : i32
         return %res : i1
@@ -101,7 +101,7 @@ fn append_partial_ord_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl for @PartialOrd[i32,i32] {
+    trait.impl private for @PartialOrd[i32,i32] {
       func.func private @lt(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi slt, %self, %other : i32
         return %res : i1
@@ -306,7 +306,11 @@ fn test_tuple_jit() {
 
     // Lower to LLVM
     let pass_manager = PassManager::new(&context);
-    pass_manager.add_pass(trait_::create_monomorphize_pass());
+    // monomorphization is two passes: instantiate the monomorphs the calls need,
+    // then erase the residual polymorphism and collect the templates nothing
+    // names.
+    pass_manager.add_pass(trait_::create_instantiate_monomorphs_pass());
+    pass_manager.add_pass(trait_::create_erase_polymorphs_pass());
     pass_manager.add_pass(pass::conversion::create_to_llvm());
     assert!(pass_manager.run(&mut module).is_ok());
 

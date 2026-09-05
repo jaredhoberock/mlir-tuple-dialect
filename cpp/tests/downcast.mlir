@@ -2,9 +2,9 @@
 
 !T = !trait.poly<0>
 
-trait.trait @Tuple[!T] {}
+trait.trait private @Tuple[!T] {}
 
-trait.trait @HomogeneousTuple[!T] where [@Tuple[!T]] {
+trait.trait private @HomogeneousTuple[!T] where [@Tuple[!T]] {
   trait.assoc_type @Element
 }
 
