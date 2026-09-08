@@ -130,6 +130,14 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
   typeConverter.addConversion([&](Type type) -> std::optional<Type> {
     if (isa<TupleType>(type))
       return std::nullopt;
+    // A memref is lowered by the LLVM type converter's own descriptor
+    // conversion, which converts the element through the registered element
+    // conversions without preserving a memref. Re-minting a memref here would
+    // instead require the lowered element to be a valid memref element, which
+    // an LLVM struct is not, so this sweep declines every memref and leaves it
+    // to that conversion. BaseMemRefType covers both ranked and unranked forms.
+    if (isa<BaseMemRefType>(type))
+      return std::nullopt;
     if (!trait::containsType<TupleType>(type))
       return std::nullopt;
 
