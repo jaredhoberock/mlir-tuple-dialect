@@ -213,6 +213,13 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
     // to that conversion. BaseMemRefType covers both ranked and unranked forms.
     if (isa<BaseMemRefType>(type))
       return std::nullopt;
+    // A container another dialect owns is that dialect's to rebuild: putting an
+    // LLVM struct where a `!coop.tensor`'s verifier expects a coordinate shape
+    // would abort the conversion rather than decline it. This sweep rebuilds only
+    // a builtin container that carries a tuple; a foreign container is left to the
+    // dialect whose converter owns it.
+    if (type.getDialect().getNamespace() != "builtin")
+      return std::nullopt;
     if (!trait::containsType<TupleType>(type))
       return std::nullopt;
 

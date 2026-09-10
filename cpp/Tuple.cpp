@@ -17,19 +17,10 @@
 #include <mlir/Transforms/InliningUtils.h>
 #include <ConstantValue.hpp>
 #include <Trait.hpp>
-#include <NonFinalTypeInterface.hpp>
 
 #include <Tuple.cpp.inc>
 
 namespace mlir::tuple {
-
-// A `!tuple.poly` is a universally-quantified generic the type system settles
-// before the conversions run, so it declares its spelling not yet final under
-// the "generic" family the driver holds a conversion behind.
-struct PolyNonFinal
-    : public lowering::NonFinalTypeInterface::ExternalModel<PolyNonFinal, PolyType> {
-  llvm::StringRef nonFinalFamily(Type) const { return "generic"; }
-};
 
 struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
   using mlir::ConvertToLLVMPatternInterface::ConvertToLLVMPatternInterface;
@@ -83,7 +74,6 @@ void TupleDialect::initialize() {
     lowering::PermissiveInlinerInterface<TupleDialect>
   >();
 
-  PolyType::attachInterface<PolyNonFinal>(*getContext());
 }
 
 void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) const {
