@@ -1626,6 +1626,67 @@ LogicalResult MakeOp::refineReturnTypes(
 
 
 //===----------------------------------------------------------------------===//
+// ConstantOp
+//===----------------------------------------------------------------------===//
+
+/// Checks that `value` describes a constant of `type` in the constant tuple's
+/// nested-attribute form: a typed scalar attribute for a scalar leaf, its type
+/// the leaf's; a nested array attribute for a tuple, recursively; and an array
+/// attribute for any other aggregate, whose leaves this local check leaves to
+/// that aggregate's own constant op. This is the leaf cross-check the bind's
+/// decode once carried: a constant stands for the value the site wrote only when
+/// its leaves are that value's kinds.
+static LogicalResult
+verifyConstantValue(Attribute value, Type type,
+                    llvm::function_ref<InFlightDiagnostic()> errFn) {
+  if (isa<IntegerType, FloatType, IndexType>(type)) {
+    auto typed = dyn_cast<TypedAttr>(value);
+    if (!typed || typed.getType() != type) {
+      errFn() << "element attribute " << value << " is not of scalar type "
+              << type;
+      return failure();
+    }
+    return success();
+  }
+
+  if (auto tupleTy = dyn_cast<TupleType>(type)) {
+    auto array = dyn_cast<ArrayAttr>(value);
+    if (!array) {
+      errFn() << "tuple element requires an array attribute, got " << value;
+      return failure();
+    }
+    if (array.size() != tupleTy.size()) {
+      errFn() << "element count " << array.size()
+              << " does not match tuple arity " << tupleTy.size();
+      return failure();
+    }
+    for (auto [elementAttr, elementTy] : llvm::zip(array, tupleTy.getTypes()))
+      if (failed(verifyConstantValue(elementAttr, elementTy, errFn)))
+        return failure();
+    return success();
+  }
+
+  // A non-tuple aggregate -- a nominal wrapper whose body is a tuple -- is
+  // transparent in the value tree: it shows up as the array attribute of its
+  // body, and its leaves are that wrapper's own constant op's concern, which a
+  // local verifier cannot resolve.
+  if (!isa<ArrayAttr>(value)) {
+    errFn() << "aggregate element requires an array attribute, got " << value;
+    return failure();
+  }
+  return success();
+}
+
+LogicalResult ConstantOp::verify() {
+  auto tupleTy = cast<TupleType>(getResult().getType());
+  return verifyConstantValue(getValue(), tupleTy,
+                             [&]() { return emitOpError(); });
+}
+
+OpFoldResult ConstantOp::fold(FoldAdaptor) { return getValue(); }
+
+
+//===----------------------------------------------------------------------===//
 // MapOp
 //===----------------------------------------------------------------------===//
 

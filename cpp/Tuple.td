@@ -22,6 +22,7 @@ def TupleDialect : Dialect {
   ];
 
   let hasCanonicalizer = 1;
+  let hasConstantMaterializer = 1;
 }
 
 class TupleOp<string mnemonic, list<Trait> traits = []> :

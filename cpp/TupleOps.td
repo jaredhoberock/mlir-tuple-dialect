@@ -507,6 +507,31 @@ def MakeOp : TupleOp<"make", [
   let hasVerifier = 1;
 }
 
+def ConstantOp : TupleOp<"constant", [
+  ConstantLike,
+  Pure
+]> {
+  let summary = "A constant tuple value";
+  let description = [{
+    A constant-like tuple whose `value` is an array attribute holding one element
+    attribute per tuple element, in order: a typed scalar attribute for a scalar
+    element, its type the element's; and a nested array attribute for a nested
+    tuple, recursively. The value mirrors the struct tree the tuple lowers to,
+    the shape an LLVM struct constant takes.
+
+    Example:
+        %c = tuple.constant([1 : i64, 2 : i64]) : tuple<i64, i64>
+  }];
+
+  let arguments = (ins ArrayAttr:$value);
+  let results = (outs ConcreteTuple:$result);
+
+  let assemblyFormat = "`(` $value `)` `:` type($result) attr-dict";
+
+  let hasVerifier = 1;
+  let hasFolder = 1;
+}
+
 def MapOp : TupleOp<"map", [
   AutomaticAllocationScope,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,

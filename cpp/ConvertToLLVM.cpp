@@ -74,6 +74,74 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
   }
 };
 
+/// Builds an LLVM constant of the converted scalar type `convertedTy` for the
+/// decoded leaf attribute `attr`. An integer or index leaf is re-typed to the
+/// lowered integer; a float leaf keeps its type, which the converter leaves
+/// unchanged.
+static Value buildScalarConstant(OpBuilder &rewriter, Location loc,
+                                 Type convertedTy, TypedAttr attr) {
+  if (auto intAttr = dyn_cast<IntegerAttr>(attr)) {
+    auto intTy = cast<IntegerType>(convertedTy);
+    auto retyped =
+        IntegerAttr::get(intTy, intAttr.getValue().zextOrTrunc(intTy.getWidth()));
+    return LLVM::ConstantOp::create(rewriter, loc, intTy, retyped);
+  }
+  if (auto floatAttr = dyn_cast<FloatAttr>(attr))
+    return LLVM::ConstantOp::create(rewriter, loc, convertedTy, floatAttr);
+  return {};
+}
+
+/// Builds the LLVM struct value a tuple constant lowers to, from the tuple's
+/// nested attribute: an undefined struct with each leaf inserted, recursing into
+/// nested tuples. The empty tuple lowers to the i8 undef its make lowers to.
+static Value buildStructConstant(OpBuilder &rewriter, Location loc,
+                                 const TypeConverter *typeConverter,
+                                 TupleType tupleTy, ArrayAttr elements) {
+  Type structTy = typeConverter->convertType(tupleTy);
+  if (!structTy)
+    return {};
+  if (tupleTy.getTypes().empty())
+    return LLVM::UndefOp::create(rewriter, loc, structTy);
+
+  Value result = LLVM::UndefOp::create(rewriter, loc, structTy);
+  for (auto [i, elementTy] : llvm::enumerate(tupleTy.getTypes())) {
+    Attribute elementAttr = elements[i];
+    Value elementValue;
+    if (auto nestedTy = dyn_cast<TupleType>(elementTy)) {
+      elementValue = buildStructConstant(rewriter, loc, typeConverter, nestedTy,
+                                         cast<ArrayAttr>(elementAttr));
+    } else {
+      Type convertedTy = typeConverter->convertType(elementTy);
+      if (!convertedTy)
+        return {};
+      elementValue = buildScalarConstant(rewriter, loc, convertedTy,
+                                         cast<TypedAttr>(elementAttr));
+    }
+    if (!elementValue)
+      return {};
+    result = LLVM::InsertValueOp::create(rewriter, loc, result, elementValue, i);
+  }
+  return result;
+}
+
+/// %c = tuple.constant([...]) : tuple<Ts...>
+///   -> the LLVM struct value the make of those constants would lower to.
+struct ConstantOpLowering : OpConversionPattern<ConstantOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(ConstantOp op, OpAdaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto tupleTy = cast<TupleType>(op.getResult().getType());
+    Value result = buildStructConstant(rewriter, op.getLoc(), getTypeConverter(),
+                                       tupleTy, op.getValue());
+    if (!result)
+      return rewriter.notifyMatchFailure(op, "could not lower tuple constant");
+    rewriter.replaceOp(op, result);
+    return success();
+  }
+};
+
 struct ConvertAnyOpWithTupleTypes : public ConversionPattern {
   ConvertAnyOpWithTupleTypes(const TypeConverter &tc, MLIRContext *ctx)
       : ConversionPattern(tc, Pattern::MatchAnyOpTypeTag(), /*benefit=*/1,
@@ -189,6 +257,7 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
 void populateTupleToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
   populateTupleToLLVMTypeConversions(typeConverter);
   patterns.add<
+    ConstantOpLowering,
     GetOpLowering,
     MakeOpLowering,
     ConvertAnyOpWithTupleTypes

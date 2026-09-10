@@ -59,13 +59,17 @@ struct GenerateImplsInterface : public trait::GenerateImplsInterface {
 struct TupleInlinerInterface : public DialectInlinerInterface {
   using DialectInlinerInterface::DialectInlinerInterface;
 
-  static bool isAlwaysLegalToInline(Operation *op) {
-    // for now, assume tuple.append, tuple.get, & tuple.make are always safe to inline
-    return isa<AppendOp>(op) || isa<GetOp>(op) || isa<MakeOp>(op);
+  // Every tuple op may be inlined anywhere: the dialect's ops carry no state
+  // that forbids cloning, and the compiler's inliner clones a callee only when
+  // every op in it belongs to a dialect declaring inlining legal, so a host
+  // function reading a tuple is inlinable only once every tuple op is.
+  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final {
+    return true;
   }
 
-  bool isLegalToInline(Operation* op, Region*, bool, IRMapping&) const {
-    return isAlwaysLegalToInline(op);
+  // A region may be inlined into a tuple region.
+  bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final {
+    return true;
   }
 };
 
@@ -88,6 +92,20 @@ void TupleDialect::initialize() {
 
 void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) const {
   populateTupleCanonicalizationPatterns(patterns);
+}
+
+/// Answers a decoded tuple value with a `tuple.constant`: the value the bind
+/// hands here is the tuple's nested attribute, an array attribute with one entry
+/// per element. Any other attribute or a non-tuple type is not this dialect's to
+/// materialize.
+Operation *TupleDialect::materializeConstant(OpBuilder &builder,
+                                             Attribute value, Type type,
+                                             Location loc) {
+  auto tupleTy = dyn_cast<TupleType>(type);
+  auto array = dyn_cast<ArrayAttr>(value);
+  if (!tupleTy || !array)
+    return nullptr;
+  return ConstantOp::create(builder, loc, tupleTy, array);
 }
 
 }
