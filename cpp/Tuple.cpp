@@ -4,6 +4,7 @@
 #include "ConvertToLLVM.hpp"
 #include "ImplGenerators.hpp"
 #include "Monomorphization.hpp"
+#include "PermissiveInlinerInterface.hpp"
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
 #include <llvm/ADT/STLExtras.h>
@@ -56,26 +57,6 @@ struct GenerateImplsInterface : public trait::GenerateImplsInterface {
   }
 };
 
-struct TupleInlinerInterface : public DialectInlinerInterface {
-  using DialectInlinerInterface::DialectInlinerInterface;
-
-  // Every tuple op may be inlined anywhere: the dialect's ops carry no state
-  // that forbids cloning, and the compiler's inliner clones a callee only when
-  // every op in it belongs to a dialect declaring inlining legal, so a host
-  // function reading a tuple is inlinable only once every tuple op is.
-  bool isLegalToInline(Operation *, Region *, bool, IRMapping &) const final {
-    return true;
-  }
-
-  // A callee may be inlined into a tuple region only when it is a single block:
-  // every tuple op's region is SizedRegion<1>, so splicing a multi-block callee
-  // in would leave a region that fails to verify. (Upstream affine, whose
-  // regions are likewise single-block, refuses on the same ground.)
-  bool isLegalToInline(Region *, Region *src, bool, IRMapping &) const final {
-    return src->hasOneBlock();
-  }
-};
-
 void TupleDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
@@ -89,7 +70,7 @@ void TupleDialect::initialize() {
     ConvertToLLVMInterface,
     GenerateImplsInterface,
     MonomorphizationInterface,
-    TupleInlinerInterface
+    lowering::PermissiveInlinerInterface<TupleDialect>
   >();
 }
 
