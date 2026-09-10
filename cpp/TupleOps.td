@@ -452,6 +452,7 @@ def GetOp : TupleOp<"get", [Pure]> {
   let assemblyFormat = "$tuple `,` $index `:` type($tuple) `->` type($result) attr-dict";
 
   let hasVerifier = 1;
+  let hasFolder = 1;
 
   let extraClassDeclaration = [{
     TupleType getTupleType() {

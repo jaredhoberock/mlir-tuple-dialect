@@ -163,29 +163,14 @@ struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
   }
 };
 
-/// Materializes `attr` at `type` as a constant op, mirroring the bind's rule so
-/// a tuple element folds to a constant of its own dialect: a nested tuple to
-/// `tuple.constant`, a scalar to `arith.constant`. The type's own dialect first,
-/// then arith for the builtin scalars, then every loaded dialect, since the
-/// builtin `TupleType` is owned by the builtin dialect, not the tuple dialect
-/// whose constant op answers it.
-static Operation *materializeElementConstant(OpBuilder &builder, Attribute attr,
-                                             Type type, Location loc) {
-  MLIRContext *context = type.getContext();
-  if (Operation *op = type.getDialect().materializeConstant(builder, attr, type, loc))
-    return op;
-  if (Dialect *arith = context->getLoadedDialect("arith"))
-    if (Operation *op = arith->materializeConstant(builder, attr, type, loc))
-      return op;
-  for (Dialect *dialect : context->getLoadedDialects())
-    if (Operation *op = dialect->materializeConstant(builder, attr, type, loc))
-      return op;
-  return nullptr;
-}
-
 /// tuple.make of all-constant operands folds to a tuple.constant gathering their
 /// attributes. A scalar operand contributes its scalar attribute, a nested
 /// constant tuple its array attribute, so the result mirrors the struct tree.
+///
+/// This is a canonicalization pattern rather than a fold hook on tuple.make: a
+/// fold fires wherever the greedy folder runs, including the tuple-elaborate
+/// pass, where folding the empty make to a constant would rewrite the make/get
+/// core that pass must leave untouched.
 struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -194,11 +179,6 @@ struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
     auto tupleTy = dyn_cast<TupleType>(op.getResult().getType());
     if (!tupleTy)
       return rewriter.notifyMatchFailure(op, "result is not a TupleType");
-
-    // The empty tuple is already a trivial value; folding it to a constant only
-    // churns the many unit-closure makes without baking anything.
-    if (op.getNumOperands() == 0)
-      return rewriter.notifyMatchFailure(op, "no operands to bake");
 
     SmallVector<Attribute> elements;
     elements.reserve(op.getNumOperands());
@@ -211,31 +191,6 @@ struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
 
     rewriter.replaceOpWithNewOp<ConstantOp>(op, tupleTy,
                                             rewriter.getArrayAttr(elements));
-    return success();
-  }
-};
-
-/// tuple.get of a tuple.constant folds to a constant of the selected element,
-/// materialized through the element type's own dialect.
-struct GetOpConstantFolding : public OpRewritePattern<GetOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(GetOp op,
-                                PatternRewriter& rewriter) const override {
-    auto constant = op.getTuple().getDefiningOp<ConstantOp>();
-    if (!constant)
-      return failure();
-
-    int64_t i = op.getIndex().getSExtValue();
-    Attribute elementAttr = constant.getValue()[i];
-    Type elementTy = op.getTupleType().getType(i);
-
-    Operation *materialized =
-        materializeElementConstant(rewriter, elementAttr, elementTy, op.getLoc());
-    if (!materialized)
-      return rewriter.notifyMatchFailure(op, "element has no constant op");
-
-    rewriter.replaceOp(op, materialized->getResult(0));
     return success();
   }
 };
@@ -295,7 +250,6 @@ void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
     CatOpCanonicalization,
     CmpOpCanonicalization,
     GetOpCanonicalization,
-    GetOpConstantFolding,
     MakeOpCanonicalization,
     MakeOpConstantFolding
   >(patterns.getContext());

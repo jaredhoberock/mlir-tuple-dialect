@@ -114,8 +114,10 @@ static Value buildStructConstant(OpBuilder &rewriter, Location loc,
       Type convertedTy = typeConverter->convertType(elementTy);
       if (!convertedTy)
         return {};
-      elementValue = buildScalarConstant(rewriter, loc, convertedTy,
-                                         cast<TypedAttr>(elementAttr));
+      auto typedAttr = dyn_cast<TypedAttr>(elementAttr);
+      if (!typedAttr)
+        return {};
+      elementValue = buildScalarConstant(rewriter, loc, convertedTy, typedAttr);
     }
     if (!elementValue)
       return {};

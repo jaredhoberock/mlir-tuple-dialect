@@ -898,6 +898,15 @@ LogicalResult GetOp::verify() {
   return success();
 }
 
+/// A tuple.get of a tuple.constant folds to the selected element attribute; the
+/// folder materializes it at the element type through that type's own dialect.
+OpFoldResult GetOp::fold(FoldAdaptor adaptor) {
+  auto array = dyn_cast_or_null<ArrayAttr>(adaptor.getTuple());
+  if (!array)
+    return {};
+  return array[getIndex().getSExtValue()];
+}
+
 
 //===----------------------------------------------------------------------===//
 // DropLastOp
@@ -1631,11 +1640,10 @@ LogicalResult MakeOp::refineReturnTypes(
 
 /// Checks that `value` describes a constant of `type` in the constant tuple's
 /// nested-attribute form: a typed scalar attribute for a scalar leaf, its type
-/// the leaf's; a nested array attribute for a tuple, recursively; and an array
-/// attribute for any other aggregate, whose leaves this local check leaves to
-/// that aggregate's own constant op. This is the leaf cross-check the bind's
-/// decode once carried: a constant stands for the value the site wrote only when
-/// its leaves are that value's kinds.
+/// the leaf's; a nested array attribute for a tuple, recursively. A leaf of any
+/// other type carries that type's own constant attribute, which this local
+/// check -- with no symbol table -- accepts and leaves to that type's constant
+/// op to verify.
 static LogicalResult
 verifyConstantValue(Attribute value, Type type,
                     llvm::function_ref<InFlightDiagnostic()> errFn) {
@@ -1666,14 +1674,10 @@ verifyConstantValue(Attribute value, Type type,
     return success();
   }
 
-  // A non-tuple aggregate -- a nominal wrapper whose body is a tuple -- is
-  // transparent in the value tree: it shows up as the array attribute of its
-  // body, and its leaves are that wrapper's own constant op's concern, which a
-  // local verifier cannot resolve.
-  if (!isa<ArrayAttr>(value)) {
-    errFn() << "aggregate element requires an array attribute, got " << value;
-    return failure();
-  }
+  // A leaf whose type is neither a scalar nor a tuple -- a nominal wrapper, an
+  // LLVM struct -- carries that type's own constant attribute (a scalar-bodied
+  // nominal's leaf is a scalar, not an array), which this local verifier cannot
+  // resolve; the type's own constant op verifies its leaves.
   return success();
 }
 

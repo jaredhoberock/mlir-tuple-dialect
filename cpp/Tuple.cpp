@@ -67,9 +67,12 @@ struct TupleInlinerInterface : public DialectInlinerInterface {
     return true;
   }
 
-  // A region may be inlined into a tuple region.
-  bool isLegalToInline(Region *, Region *, bool, IRMapping &) const final {
-    return true;
+  // A callee may be inlined into a tuple region only when it is a single block:
+  // every tuple op's region is SizedRegion<1>, so splicing a multi-block callee
+  // in would leave a region that fails to verify. (Upstream affine, whose
+  // regions are likewise single-block, refuses on the same ground.)
+  bool isLegalToInline(Region *, Region *src, bool, IRMapping &) const final {
+    return src->hasOneBlock();
   }
 };
 
@@ -94,18 +97,23 @@ void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) cons
   populateTupleCanonicalizationPatterns(patterns);
 }
 
-/// Answers a decoded tuple value with a `tuple.constant`: the value the bind
-/// hands here is the tuple's nested attribute, an array attribute with one entry
-/// per element. Any other attribute or a non-tuple type is not this dialect's to
-/// materialize.
+/// Answers a decoded value with the constant op that stands for it: a tuple type
+/// with a matching-arity array attribute is a `tuple.constant`; a builtin scalar
+/// is arith's constant; any other type's constant is its own dialect's. Each
+/// mismatch answers null so the folder reports "no dialect materializes" rather
+/// than minting an op that fails verification.
 Operation *TupleDialect::materializeConstant(OpBuilder &builder,
                                              Attribute value, Type type,
                                              Location loc) {
-  auto tupleTy = dyn_cast<TupleType>(type);
-  auto array = dyn_cast<ArrayAttr>(value);
-  if (!tupleTy || !array)
-    return nullptr;
-  return ConstantOp::create(builder, loc, tupleTy, array);
+  if (auto tupleTy = dyn_cast<TupleType>(type)) {
+    auto array = dyn_cast<ArrayAttr>(value);
+    if (!array || array.size() != tupleTy.size())
+      return nullptr;
+    return ConstantOp::create(builder, loc, tupleTy, array);
+  }
+  if (arith::ConstantOp c = arith::ConstantOp::materialize(builder, value, type, loc))
+    return c.getOperation();
+  return type.getDialect().materializeConstant(builder, value, type, loc);
 }
 
 }
