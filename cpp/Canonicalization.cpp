@@ -163,14 +163,12 @@ struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
   }
 };
 
-/// tuple.make of all-constant operands folds to a tuple.constant gathering their
+/// tuple.make of all-constant operands becomes a tuple.constant gathering their
 /// attributes. A scalar operand contributes its scalar attribute, a nested
 /// constant tuple its array attribute, so the result mirrors the struct tree.
 ///
-/// This is a canonicalization pattern rather than a fold hook on tuple.make: a
-/// fold fires wherever the greedy folder runs, including the tuple-elaborate
-/// pass, where folding the empty make to a constant would rewrite the make/get
-/// core that pass must leave untouched.
+/// A canonicalization pattern, so it runs only under the canonicalizer, leaving
+/// the make/get core the tuple-elaborate pass must not rewrite.
 struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
   using OpRewritePattern::OpRewritePattern;
 

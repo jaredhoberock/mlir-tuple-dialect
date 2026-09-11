@@ -3,6 +3,7 @@
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
 #include "TupleTypes.hpp"
+#include <ConstantValue.hpp>
 #include <iostream>
 #include <mlir/IR/Builders.h>
 #include <TraitTypes.hpp>
@@ -1638,47 +1639,15 @@ LogicalResult MakeOp::refineReturnTypes(
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
-/// Checks that `value` describes a constant of `type` in the constant tuple's
-/// nested-attribute form: a typed scalar attribute for a scalar leaf, its type
-/// the leaf's; a nested array attribute for a tuple, recursively. A leaf of any
-/// other type carries that type's own constant attribute, which this local
-/// check -- with no symbol table -- accepts and leaves to that type's constant
-/// op to verify.
+/// Checks that `value` describes a constant of the tuple `type`, its scalar and
+/// tuple leaves through the shared shape check. A leaf of any other type -- a
+/// nominal wrapper, an LLVM struct -- carries that type's own constant attribute,
+/// which this local check, with no symbol table, leaves to that type's constant op.
 static LogicalResult
 verifyConstantValue(Attribute value, Type type,
                     llvm::function_ref<InFlightDiagnostic()> errFn) {
-  if (isa<IntegerType, FloatType, IndexType>(type)) {
-    auto typed = dyn_cast<TypedAttr>(value);
-    if (!typed || typed.getType() != type) {
-      errFn() << "element attribute " << value << " is not of scalar type "
-              << type;
-      return failure();
-    }
-    return success();
-  }
-
-  if (auto tupleTy = dyn_cast<TupleType>(type)) {
-    auto array = dyn_cast<ArrayAttr>(value);
-    if (!array) {
-      errFn() << "tuple element requires an array attribute, got " << value;
-      return failure();
-    }
-    if (array.size() != tupleTy.size()) {
-      errFn() << "element count " << array.size()
-              << " does not match tuple arity " << tupleTy.size();
-      return failure();
-    }
-    for (auto [elementAttr, elementTy] : llvm::zip(array, tupleTy.getTypes()))
-      if (failed(verifyConstantValue(elementAttr, elementTy, errFn)))
-        return failure();
-    return success();
-  }
-
-  // A leaf whose type is neither a scalar nor a tuple -- a nominal wrapper, an
-  // LLVM struct -- carries that type's own constant attribute (a scalar-bodied
-  // nominal's leaf is a scalar, not an array), which this local verifier cannot
-  // resolve; the type's own constant op verifies its leaves.
-  return success();
+  auto leafHook = [&](Attribute, Type) -> LogicalResult { return success(); };
+  return lowering::verifyConstantShape(value, type, errFn, leafHook);
 }
 
 LogicalResult ConstantOp::verify() {

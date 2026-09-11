@@ -15,6 +15,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/Transforms/InliningUtils.h>
+#include <ConstantValue.hpp>
 #include <Trait.hpp>
 
 #include <Tuple.cpp.inc>
@@ -79,12 +80,10 @@ void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) cons
 }
 
 /// Answers a decoded value with the constant op that stands for it: a tuple type
-/// with a matching-arity array attribute is a `tuple.constant`; a builtin scalar
-/// is arith's constant; any other type's constant is its own dialect's. This hook
-/// is a leaf: a tuple-owned type that is not a `TupleType` has no constant op here,
-/// so it answers null rather than re-entering this same hook. Each mismatch answers
-/// null so the folder reports "no dialect materializes" rather than minting an op
-/// that fails verification.
+/// with a matching-arity array attribute is a `tuple.constant`; every other type
+/// is a leaf this dialect owns no constant op for. A leaf hook: a tuple-owned type
+/// that is not a `TupleType` answers null, as does each arity mismatch, leaving
+/// the value unmaterialized.
 Operation *TupleDialect::materializeConstant(OpBuilder &builder,
                                              Attribute value, Type type,
                                              Location loc) {
@@ -94,11 +93,7 @@ Operation *TupleDialect::materializeConstant(OpBuilder &builder,
       return nullptr;
     return ConstantOp::create(builder, loc, tupleTy, array);
   }
-  if (arith::ConstantOp c = arith::ConstantOp::materialize(builder, value, type, loc))
-    return c.getOperation();
-  if (&type.getDialect() == this)
-    return nullptr;
-  return type.getDialect().materializeConstant(builder, value, type, loc);
+  return lowering::materializeConstantAsLeaf(this, builder, value, type, loc);
 }
 
 }

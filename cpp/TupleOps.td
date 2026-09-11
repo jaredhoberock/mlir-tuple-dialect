@@ -24,6 +24,7 @@ def ConcreteTuple : TypeConstraint<
 
 def AllOp : TupleOp<"all", [
   AutomaticAllocationScope,
+  SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
 ]> {
@@ -201,6 +202,7 @@ def DropLastOp : TupleOp<"drop_last", [
 
 def ExclusiveScanOp : TupleOp<"exclusive_scan", [
   AutomaticAllocationScope,
+  SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
 ]> {
@@ -289,6 +291,7 @@ def FlattenOp : TupleOp<"flatten", [
 // XXX TODO tuple.flat_map should probably be variadic like tuple.map
 def FlatMapOp : TupleOp<"flat_map", [
   AutomaticAllocationScope,
+  SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
 ]> {
@@ -374,6 +377,7 @@ def DowncastOp : TupleOp<"downcast", [
 
 def FoldlOp : TupleOp<"foldl", [
   AutomaticAllocationScope,
+  SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
 ]> {
@@ -535,6 +539,7 @@ def ConstantOp : TupleOp<"constant", [
 
 def MapOp : TupleOp<"map", [
   AutomaticAllocationScope,
+  SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
 ]> {
