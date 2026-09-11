@@ -261,6 +261,7 @@ version = "0.2.0"
 dependencies = [
  "melior",
  "mlir-inline-dialect",
+ "mlir-lowering-driver",
  "mlir-sys",
  "mlir-trait-dialect",
 ]

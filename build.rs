@@ -14,12 +14,15 @@ fn main() {
         .expect("DEP_TRAIT_DIALECT_INCLUDE_DIR must be set by mlir-trait-dialect");
     let trait_lib_dir = env::var("DEP_TRAIT_DIALECT_LIB_DIR")
         .expect("DEP_TRAIT_DIALECT_LIB_DIR must be set by mlir-trait-dialect");
+    let lowering_driver_source_dir = env::var("DEP_LOWERING_DRIVER_SOURCE_DIR")
+        .expect("DEP_LOWERING_DRIVER_SOURCE_DIR must be set by mlir-lowering-driver");
 
     let status = Command::new("make")
         .arg("-j")
         .arg(format!("BUILD_DIR={}", build_dir.display()))
         .arg(format!("TRAIT_DIALECT_SOURCE_DIR={trait_source_dir}"))
         .arg(format!("TRAIT_DIALECT_INCLUDE_DIR={trait_include_dir}"))
+        .arg(format!("LOWERING_DRIVER_SOURCE_DIR={lowering_driver_source_dir}"))
         .current_dir(&cpp_dir)
         .status()
         .expect("Failed to run make in cpp/");
@@ -40,4 +43,10 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=MLIR_SYS_220_PREFIX");
     println!("cargo:rerun-if-changed=cpp");
+    // This dialect compiles against the driver's header-only shared inliner
+    // interface rather than linking it, so a change to any driver header must
+    // recompile its C++. The cargo dependency on the driver crate orders the build
+    // and supplies the source directory; watch that directory, which cargo scans
+    // recursively, so no header is omitted and no hardcoded sibling path is tracked.
+    println!("cargo:rerun-if-changed={lowering_driver_source_dir}");
 }

@@ -8,6 +8,7 @@ links = "tuple_dialect"
 melior = "0.27"
 mlir-sys = "220.0.1"
 trait_dialect = { path = "../mlir-trait-dialect", package = "mlir-trait-dialect" }
+lowering_driver = { path = "../mlir-lowering-driver", package = "mlir-lowering-driver" }
 
 [lib]
 name = "tuple_dialect"

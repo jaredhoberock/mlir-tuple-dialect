@@ -73,7 +73,6 @@ void TupleDialect::initialize() {
     MonomorphizationInterface,
     lowering::PermissiveInlinerInterface<TupleDialect>
   >();
-
 }
 
 void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) const {
