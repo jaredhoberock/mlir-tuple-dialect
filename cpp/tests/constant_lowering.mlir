@@ -42,10 +42,10 @@ func.func @constant_index() -> tuple<index> {
 }
 
 // -----
-// The empty tuple lowers to the i8 undef its make lowers to.
+// The empty tuple lowers to the defined zero byte its make lowers to.
 // CHECK-LABEL: llvm.func @constant_empty
 // CHECK-NOT: builtin.unrealized_conversion_cast
-// CHECK: llvm.mlir.undef : i8
+// CHECK: llvm.mlir.constant(0 : i8) : i8
 // CHECK: llvm.return
 func.func @constant_empty() -> tuple<> {
   %c = tuple.constant([]) : tuple<>

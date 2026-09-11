@@ -45,11 +45,14 @@ struct MakeOpLowering : OpConversionPattern<MakeOp> {
     auto tupleTy = cast<TupleType>(op.getResult().getType());
     Location loc = op.getLoc();
 
-    // handle empty tuples
+    // The empty tuple carries no data and lowers to one byte (see the type
+    // conversion). That byte is a defined zero rather than undef, so a specialized
+    // unit writes a deterministic value and its specialization key is stable.
     if (tupleTy.getTypes().empty()) {
       Type convertedTy = getTypeConverter()->convertType(tupleTy);
-      Value undefined = LLVM::UndefOp::create(rewriter, loc, convertedTy);
-      rewriter.replaceOp(op, undefined);
+      Value zero = LLVM::ConstantOp::create(rewriter, loc, convertedTy,
+                                            IntegerAttr::get(convertedTy, 0));
+      rewriter.replaceOp(op, zero);
       return success();
     }
 
@@ -93,7 +96,8 @@ static Value buildScalarConstant(OpBuilder &rewriter, Location loc,
 
 /// Builds the LLVM struct value a tuple constant lowers to, from the tuple's
 /// nested attribute: an undefined struct with each leaf inserted, recursing into
-/// nested tuples. The empty tuple lowers to the i8 undef its make lowers to.
+/// nested tuples. The empty tuple lowers to the defined zero byte its make lowers
+/// to.
 static Value buildStructConstant(OpBuilder &rewriter, Location loc,
                                  const TypeConverter *typeConverter,
                                  TupleType tupleTy, ArrayAttr elements) {
@@ -101,7 +105,8 @@ static Value buildStructConstant(OpBuilder &rewriter, Location loc,
   if (!structTy)
     return {};
   if (tupleTy.getTypes().empty())
-    return LLVM::UndefOp::create(rewriter, loc, structTy);
+    return LLVM::ConstantOp::create(rewriter, loc, structTy,
+                                    IntegerAttr::get(structTy, 0));
 
   Value result = LLVM::UndefOp::create(rewriter, loc, structTy);
   for (auto [i, elementTy] : llvm::enumerate(tupleTy.getTypes())) {
@@ -236,9 +241,14 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
   });
 
   typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {
-    // LLVM has no zero-width type, so the empty tuple lowers to an i8. The
-    // data-layout model reads this same mapping, so the empty tuple lays out
-    // as that i8.
+    // The empty tuple lowers to a single byte. The zero-field LLVM struct would
+    // be the exact model, but the NVPTX backend rejects an empty aggregate as a
+    // kernel parameter ("Empty parameter types are not supported"), and a unit
+    // reaches a device kernel as its captured-argument type whenever a launch
+    // captures nothing. So the unit lowers to `i8`; its make and constant produce
+    // a defined zero (not undef), so the one byte a specialized unit writes is
+    // deterministic and its specialization key is stable. The data-layout model
+    // reads this same mapping, so the empty tuple lays out as that i8.
     if (tupleTy.getTypes().empty())
       return IntegerType::get(tupleTy.getContext(), 8);
 
