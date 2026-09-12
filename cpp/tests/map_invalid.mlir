@@ -131,3 +131,18 @@ func.func @empty_tuple_wrong_body_arity(%xs: tuple<>) -> tuple<> {
   }
   return %res : tuple<>
 }
+
+// -----
+// an element the input spells as a type parameter is not narrowed to fit the
+// body: the types an iteration supplies are rigid, and only the body's own
+// parameters take arguments
+
+!X = !trait.poly<0>
+func.func @element_parameter_is_not_narrowed(%xs: tuple<!X>) -> tuple<i32> {
+  // expected-error @+1 {{'tuple.map' op type mismatch: expected 'i32' but found '!trait.poly<0>'}}
+  %res = tuple.map %xs : tuple<!X> -> tuple<i32> {
+  ^bb0(%x: i32):
+    yield %x : i32
+  }
+  return %res : tuple<i32>
+}

@@ -24,8 +24,11 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
     `!tuple.poly` with an automatically-generated `unique_id`. Unique IDs are
     allocated in monotonically decreasing order beginning at `-1`.
 
-    `!tuple.poly` is identical to `!trait.poly` *except* that it instantiates
-    into `!tuple.infer`. A `!tuple.infer` type will unify only with a tuple-like type.
+    `!tuple.poly` is an occurrence of the `!trait.poly` it wraps that constrains
+    that parameter to a tuple: a declaration binds the inner parameter, and a
+    substitution carrying it to a type that is not tuple-like spells nothing
+    here, which leaves the constraint standing and the comparison that reads it
+    refuses.
   }];
 
   let extraClassDeclaration = [{
@@ -35,6 +38,7 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
     // for GenericTypeInterface
     Type instantiate(::mlir::trait::InstantiationMap &inst, uint64_t &idCounter);
     Type specializeWith(const ::mlir::trait::SpecializationMap &subst) const;
+    Type getParameterAtom() const { return getInner(); }
 
     // for PolymorphicTypeInterface
     bool isPolymorphic() const { return true; }
@@ -43,38 +47,6 @@ def PolyType : TypeDef<TupleDialect, "Poly", [
   let parameters = (ins "::mlir::trait::PolyType":$inner);
 
   let hasCustomAssemblyFormat = 1;
-}
-
-// Represents an inference variable used during type inference
-def InferenceType : TypeDef<TupleDialect, "Inference", [
-  PolymorphicTypeInterface,
-  UnificationTypeInterface
-]> {
-  let mnemonic = "infer";
-  let summary = "INTERNAL: Type inference variable (should not appear in final IR)";
-
-  let description = [{
-    The `!tuple.infer` type represents a *type inference variable* created during
-    impl resolution and type checking.
-
-    `!tuple.infer` is identical to `!trait.infer` *except* that it will unify
-    only with another tuple-like type.
-  }];
-
-  let extraClassDeclaration = [{
-    // for PolymorphicTypeInterface
-    bool isPolymorphic() const { return true; }
-
-    // for UnificationTypeInterface
-    LogicalResult unify(Type other,
-                        ModuleOp module,
-                        ::mlir::trait::UnificationMap &subst,
-                        llvm::function_ref<InFlightDiagnostic()> emitError);
-  }];
-
-  let parameters = (ins "uint64_t":$unique_id);
-
-  let assemblyFormat = "`<` $unique_id `>`";
 }
 
 #endif // TUPLE_TYPES_TD

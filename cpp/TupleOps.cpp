@@ -17,6 +17,74 @@ static bool isTupleStructureTrait(StringRef traitName) {
   return traitName == "Tuple";
 }
 
+/// The type arguments carrying a per-element body's declaration to the types
+/// standing opposite it.
+///
+/// A body is a callable, so its signature is its declaration and the parameters
+/// that signature spells are the only variables; the `actuals` -- the types an
+/// iteration supplies, the accumulator a step yields, the type the op itself
+/// spells -- are rigid, and nothing they spell is narrowed to fit the body.
+/// Every position is read before any is compared, so a parameter standing at
+/// two of them is fixed at the first and both positions answer to it. The
+/// verdict is each formal instantiated at those arguments being its actual,
+/// compared as written: an op holding a body reads a spelling through no
+/// established context of its own.
+///
+/// A position whose actual carries no type is one this caller does not name --
+/// an input the op cannot index, a yield the op reads off the body rather than
+/// dictating. Nothing is read there and nothing is compared.
+///
+/// A parameter standing opposite a spelling of itself -- the tuple-kinded
+/// occurrence of a parameter opposite that same parameter -- takes no argument
+/// from that position: the two spell one type, and carrying the parameter to
+/// its kinded occurrence would rewrite every bare occurrence in the body into
+/// the kinded one when the body is stamped out.
+static FailureOr<trait::SpecializationMap> matchBodyPositions(
+    FunctionType bodyTy, ArrayRef<Type> formals, ArrayRef<Type> actuals,
+    llvm::function_ref<InFlightDiagnostic()> err) {
+  assert(formals.size() == actuals.size() &&
+         "every formal position stands opposite one actual");
+
+  trait::TypeArguments args(trait::getTypeParametersIn(Type(bodyTy)));
+  for (auto [formal, actual] : llvm::zip(formals, actuals))
+    if (actual)
+      trait::extractTypeArguments(formal, actual, args);
+
+  trait::SpecializationMap arguments;
+  for (trait::GenericTypeInterface parameter : args.getParameters()) {
+    std::optional<Type> argument = args.lookup(parameter);
+    if (argument && trait::getParameterOccurrence(*argument) != parameter)
+      arguments.bind(parameter, *argument);
+  }
+
+  for (auto [formal, actual] : llvm::zip(formals, actuals))
+    if (actual && failed(trait::verifyEqualAfterInstantiation(
+                      formal, arguments, actual, /*normalize=*/nullptr, err)))
+      return failure();
+
+  return arguments;
+}
+
+/// The type arguments carrying `formal`, one spelling from a per-element body's
+/// declaration, to `actual`.
+static FailureOr<trait::SpecializationMap> matchBodyFormal(
+    FunctionType bodyTy, Type formal, Type actual,
+    llvm::function_ref<InFlightDiagnostic()> err) {
+  return matchBodyPositions(bodyTy, formal, actual, err);
+}
+
+/// The type arguments one iteration of a per-element body takes.
+///
+/// `supplied` stands opposite the body's signature position by position, its
+/// arguments first and then what it yields.
+static FailureOr<trait::SpecializationMap> matchBodyToIteration(
+    FunctionType bodyTy, ArrayRef<Type> supplied,
+    llvm::function_ref<InFlightDiagnostic()> err) {
+  SmallVector<Type, 4> declared(bodyTy.getInputs());
+  declared.append(bodyTy.getResults().begin(), bodyTy.getResults().end());
+  return matchBodyPositions(bodyTy, declared, supplied, err);
+}
+
 /// Verifies that a downcast from `!trait.poly` to `!tuple.poly` is justified by
 /// a tuple-structure claim.
 ///
@@ -128,16 +196,14 @@ FunctionType AllOp::getBodyFunctionType() {
   );
 }
 
-FunctionType AllOp::getFunctionTypeForIteration(unsigned int i) {
+SmallVector<Type> AllOp::getSuppliedTypesForIteration(unsigned int i) {
   auto inputTupleType = getInputTupleTypeWithKnownArity();
   if (failed(inputTupleType))
-    llvm_unreachable("AllOp::getFunctionTypeForIteration: input must be TupleType");
+    llvm_unreachable("AllOp::getSuppliedTypesForIteration: input must be TupleType");
 
-  return FunctionType::get(
-      getContext(),
-      {inputTupleType->getType(i)},
-      bodyYield().getOperand().getType()
-  );
+  // the element this iteration reads; what the body yields is i1 by this op's
+  // own rule, checked where the body is
+  return {inputTupleType->getType(i), Type()};
 }
 
 LogicalResult AllOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
@@ -157,14 +223,10 @@ LogicalResult AllOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned ar
   // treat the body as a function: (Eformal) -> i1
   FunctionType calleeTy = getBodyFunctionType();
 
-  // for each tuple element i, the "caller" is: (Eactual) -> i1
+  // the body's declaration must carry to the element each iteration reads
   for (unsigned i = 0; i < arity; ++i) {
-    FunctionType callerTy = getFunctionTypeForIteration(i);
-
-    // unify body formal with actual for this iteration
-    // A verifier compares spellings with no module (module-free comparator):
-    // no mid-verify ground-projection resolution; lowering keeps the real module.
-    if (failed(trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err)))
+    if (failed(matchBodyToIteration(calleeTy, getSuppliedTypesForIteration(i),
+                                    err)))
       return failure();
   }
   return success();
@@ -562,10 +624,13 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
     formalClaimsTy = *elementwise;
   }
 
-  // check that the types can unify
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(formalClaimsTy, claims.getType(), ModuleOp(), errFn)))
+  // The claims this comparison requires, read against the operand that supplies
+  // them: the parameters the formal spells -- among them the placeholders minted
+  // above for a side whose elements this op cannot name -- take what the operand
+  // spells opposite them, and the operand's spelling is rigid.
+  if (failed(trait::matchDeclaration(trait::getTypeParametersIn(formalClaimsTy),
+                                     formalClaimsTy, claims.getType(),
+                                     /*normalize=*/nullptr, errFn)))
     return failure();
 
   return success();
@@ -778,10 +843,10 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   Type AccFormal = calleeTy.getInput(0);
   Type YieldFormal = calleeTy.getResult(0);
 
-  // body must preserve accumulator shape
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, ModuleOp(), err)))
+  // The body must preserve the accumulator's shape: the next step's accumulator
+  // is this step's yield, so the yield is the type in hand and the accumulator
+  // formal is the declaration read against it.
+  if (failed(matchBodyFormal(calleeTy, AccFormal, YieldFormal, err)))
     return failure();
 
   // thread accumulator type across iterations, collecting result element types
@@ -792,15 +857,13 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithKnownArity(ModuleOp module, u
   resultElemTypes.push_back(prev);
 
   for (unsigned i = 0; i < arity; ++i) {
-    FunctionType callerTy = getFunctionTypeForIteration(i, prev);
-
-    // A verifier compares spellings with no module (module-free comparator):
-    // no mid-verify ground-projection resolution; lowering keeps the real module.
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
+    auto subst = matchBodyToIteration(
+        calleeTy, getSuppliedTypesForIteration(i, prev), err);
     if (failed(subst))
       return failure();
 
-    prev = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), YieldFormal);
+    // what this step yields is what the next one accumulates
+    prev = trait::instantiate(YieldFormal, *subst);
     resultElemTypes.push_back(prev);
   }
 
@@ -822,11 +885,9 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
   Type YieldFormal = calleeTy.getResult(0);
   Type initActual = getInit().getType();
 
-  // The accumulator formal must be compatible with the init type.
+  // The accumulator formal must carry to the init type.
   // This ensures the body can accept the initial value.
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(AccFormal, initActual, ModuleOp(), err)))
+  if (failed(matchBodyFormal(calleeTy, AccFormal, initActual, err)))
     return failure();
 
   // When arity is unknown, we can't verify each element type individually.
@@ -835,11 +896,10 @@ LogicalResult ExclusiveScanOp::verifySymbolUsesWithUnknownArity(ModuleOp module)
   if (!trait::isPurelyPolymorphicType(ElemFormal))
     return emitOpError() << "element body argument must be purely polymorphic; got " << ElemFormal;
 
-  // The body must preserve the accumulator's shape: what goes in must come out.
-  // This ensures the accumulator type is consistent across all iterations.
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(AccFormal, YieldFormal, ModuleOp(), err)))
+  // The body must preserve the accumulator's shape: the next step's accumulator
+  // is this step's yield, so the yield is the type in hand and the accumulator
+  // formal is the declaration read against it.
+  if (failed(matchBodyFormal(calleeTy, AccFormal, YieldFormal, err)))
     return failure();
 
   // Result must be polymorphic when input is polymorphic
@@ -861,18 +921,16 @@ FunctionType ExclusiveScanOp::getBodyFunctionType() {
   );
 }
 
-FunctionType ExclusiveScanOp::getFunctionTypeForIteration(
+SmallVector<Type> ExclusiveScanOp::getSuppliedTypesForIteration(
     unsigned int i,
     Type accumulatorType) {
   auto tupleType = getInputTupleTypeWithKnownArity();
   if (failed(tupleType))
-    llvm_unreachable("getFunctionTypeForIteration: tuple must be TupleType");
+    llvm_unreachable("getSuppliedTypesForIteration: tuple must be TupleType");
 
-  return FunctionType::get(
-      getContext(),
-      {accumulatorType, tupleType->getType(i)},
-      bodyYield().getOperand().getType()
-  );
+  // the accumulator this step starts from and the element it reads; what the
+  // body yields is what the next step accumulates, read off the body
+  return {accumulatorType, tupleType->getType(i), Type()};
 }
 
 FailureOr<trait::SpecializationMap> ExclusiveScanOp::buildSubstitutionForIteration(
@@ -883,17 +941,9 @@ FailureOr<trait::SpecializationMap> ExclusiveScanOp::buildSubstitutionForIterati
   if (failed(tupleType))
     return failure();
 
-  auto module = getOperation()->getParentOfType<ModuleOp>();
-  if (!module) {
-    if (errFn) errFn() << "not in a module";
-    return failure();
-  }
-
-  auto bodyTy = getBodyFunctionType();
-  auto iterationTy = getFunctionTypeForIteration(i, accumulatorType);
-
-  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
-  return subst;
+  return matchBodyToIteration(getBodyFunctionType(),
+                              getSuppliedTypesForIteration(i, accumulatorType),
+                              errFn);
 }
 
 
@@ -1232,30 +1282,21 @@ FunctionType FlatMapOp::getBodyFunctionType() {
   );
 }
 
-FunctionType FlatMapOp::getFunctionTypeForIteration(unsigned int i) {
+SmallVector<Type> FlatMapOp::getSuppliedTypesForIteration(unsigned int i) {
   auto inputTupleType = getInputTupleTypeWithKnownArity();
   if (failed(inputTupleType))
-    llvm_unreachable("FlatMapOp::getFunctionTypeForIteration: input must be TupleType");
+    llvm_unreachable("FlatMapOp::getSuppliedTypesForIteration: input must be TupleType");
 
-  return FunctionType::get(
-      getContext(),
-      {inputTupleType->getType(i)},
-      bodyYield().getOperand().getType()
-  );
+  // the element this iteration reads; what the body yields is the tuple this
+  // element contributes to the result, read off the body
+  return {inputTupleType->getType(i), Type()};
 }
 
 FailureOr<trait::SpecializationMap> FlatMapOp::buildSubstitutionForIteration(
     unsigned int i,
     function_ref<InFlightDiagnostic()> errFn) {
-  auto module = getOperation()->getParentOfType<ModuleOp>();
-  if (!module) {
-    if (errFn) errFn() << "not in a module";
-    return failure();
-  }
-  auto bodyTy = getBodyFunctionType();
-  auto iterationTy = getFunctionTypeForIteration(i);
-  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
-  return subst;
+  return matchBodyToIteration(getBodyFunctionType(),
+                              getSuppliedTypesForIteration(i), errFn);
 }
 
 LogicalResult FlatMapOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
@@ -1279,19 +1320,15 @@ LogicalResult FlatMapOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigne
   SmallVector<Type,8> concatenatedElems;
   bool allConcrete = true;
 
-  // for each tuple element i, the "caller" is: (Eactual) -> Yformal
+  // for each tuple element i, the body reads that element
   for (unsigned i = 0; i < arity; ++i) {
-    FunctionType callerTy = getFunctionTypeForIteration(i);
-
-    // unify body formal with actual for this iteration
-    // A verifier compares spellings with no module (module-free comparator):
-    // no mid-verify ground-projection resolution; lowering keeps the real module.
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
+    auto subst =
+        matchBodyToIteration(calleeTy, getSuppliedTypesForIteration(i), err);
     if (failed(subst))
       return failure();
 
     // instantiate the yield type for this iteration
-    Type Yactual = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), Yformal);
+    Type Yactual = trait::instantiate(Yformal, *subst);
 
     // each iteration must yield something TupleLike
     if (!isTupleLike(Yactual))
@@ -1430,23 +1467,19 @@ LogicalResult FoldlOp::verifySymbolUsesWithKnownArity(ModuleOp module, unsigned 
   // thread the accumulator type across iterations
   Type prev = getInit().getType();
   for (unsigned i = 0; i < arity; ++i) {
-    FunctionType callerTy = getFunctionTypeForIteration(i, prev);
-
-    // unify each iteration in isolation as if it was a separate function call
-    // A verifier compares spellings with no module (module-free comparator):
-    // no mid-verify ground-projection resolution; lowering keeps the real module.
-    auto subst = trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err);
+    // read each iteration in isolation as if it were a separate call
+    auto subst =
+        matchBodyToIteration(calleeTy, getSuppliedTypesForIteration(i, prev), err);
     if (failed(subst)) return failure();
 
-    // update the previous result type by applying the substitution
-    // to the body's result type
-    prev = trait::applySubstitutionToFixedPoint(subst->toTypeMap(), R);
+    // what this step yields is what the next one accumulates
+    prev = trait::instantiate(R, *subst);
   }
 
-  // unify the formal result type with the actual final result type
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  return trait::buildSpecialization(getResult().getType(), prev, ModuleOp(), err);
+  // The fold's result is the type the last step yielded.
+  return trait::verifyEqualAfterInstantiation(prev, trait::SpecializationMap(),
+                                              getResult().getType(),
+                                              /*normalize=*/nullptr, err);
 }
 
 LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
@@ -1460,10 +1493,8 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
   Type initActual       = getInit().getType();   // actual type of %init
   Type resultFormal     = getResult().getType(); // op's formal result type
 
-  // must be able to specialize the formal acc with the actual init type
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(accFormal, initActual, ModuleOp(), err)))
+  // the accumulator formal must carry to the actual init type
+  if (failed(matchBodyFormal(calleeTy, accFormal, initActual, err)))
     return failure();
 
   // every non-accumulator body arg type must be purely polymorphic
@@ -1474,16 +1505,15 @@ LogicalResult FoldlOp::verifySymbolUsesWithUnknownArity(ModuleOp module) {
                    << Ei;
   }
 
-  // closure: one step of the body must preserve the accumulator shape
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(accFormal, yieldFormal, ModuleOp(), err)))
+  // Closure: one step of the body must preserve the accumulator's shape. The
+  // next step's accumulator is this step's yield, so the yield is the type in
+  // hand and the accumulator formal is the declaration read against it.
+  if (failed(matchBodyFormal(calleeTy, accFormal, yieldFormal, err)))
     return failure();
 
-  // op result consistency: op's formal result must match the accumulator
-  // A verifier compares spellings with no module (module-free comparator):
-  // no mid-verify ground-projection resolution; lowering keeps the real module.
-  return trait::buildSpecialization(resultFormal, accFormal, ModuleOp(), err);
+  // op result consistency: the op's own result type is the term the accumulator
+  // formal must carry to
+  return matchBodyFormal(calleeTy, accFormal, resultFormal, err);
 }
 
 YieldOp FoldlOp::bodyYield() {
@@ -1498,23 +1528,23 @@ FunctionType FoldlOp::getBodyFunctionType() {
   );
 }
 
-FunctionType FoldlOp::getFunctionTypeForIteration(
+SmallVector<Type> FoldlOp::getSuppliedTypesForIteration(
     unsigned int i,
     Type resultTypeOfPreviousIteration) {
   auto inputTupleTypes = getInputTypesAsTupleTypes();
   if (failed(inputTupleTypes))
-    llvm_unreachable("FoldlOp::getFunctionTypeForIteration: inputs must be TupleTypes");
+    llvm_unreachable("FoldlOp::getSuppliedTypesForIteration: inputs must be TupleTypes");
 
-  SmallVector<Type> argumentTypes;
-  argumentTypes.push_back(resultTypeOfPreviousIteration);
+  // the accumulator this step starts from and the element each input
+  // contributes; what the body yields is what the next step accumulates, read
+  // off the body
+  SmallVector<Type> supplied;
+  supplied.push_back(resultTypeOfPreviousIteration);
   for (TupleType input : *inputTupleTypes)
-    argumentTypes.push_back(input.getType(i));
+    supplied.push_back(input.getType(i));
+  supplied.push_back(Type());
 
-  return FunctionType::get(
-      getContext(),
-      argumentTypes,
-      bodyYield().getOperand().getType()
-  );
+  return supplied;
 }
 
 trait::SpecializationMap FoldlOp::buildSubstitutionForIteration(
@@ -1522,14 +1552,13 @@ trait::SpecializationMap FoldlOp::buildSubstitutionForIteration(
     Type resultTypeOfPreviousIteration) {
   assert(inputTypesAreTupleTypes() && "FoldlOp::buildSubstitutionForIteration: inputs must be TupleType");
 
-  auto bodyTy = getBodyFunctionType();
-  auto iterationTy = getFunctionTypeForIteration(i, resultTypeOfPreviousIteration);
-
-  auto module = getOperation()->getParentOfType<ModuleOp>();
-  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module);
+  auto subst = matchBodyToIteration(
+      getBodyFunctionType(),
+      getSuppliedTypesForIteration(i, resultTypeOfPreviousIteration),
+      /*err=*/nullptr);
   if (failed(subst)) {
     // this should never happen if FoldlOp::verifySymbolUses succeeds
-    llvm_unreachable("buildSubstitutionForIteration: unification failed");
+    llvm_unreachable("buildSubstitutionForIteration: the body does not take this iteration");
   }
   return *subst;
 }
@@ -1783,13 +1812,8 @@ LogicalResult MapOp::verifySymbolUsesWithKnownArity(ModuleOp module,
 
   // check each iteration as if it were a separate function call
   for (unsigned i = 0; i < arity; ++i) {
-    FunctionType callerTy = getFunctionTypeForIteration(i);
-
-    // attempt unification between the body's formal type and
-    // the actual caller type at this iteration
-    // A verifier compares spellings with no module (module-free comparator):
-    // no mid-verify ground-projection resolution; lowering keeps the real module.
-    if (failed(trait::buildSpecialization(calleeTy, callerTy, ModuleOp(), err)))
+    if (failed(matchBodyToIteration(calleeTy, getSuppliedTypesForIteration(i),
+                                    err)))
       return failure();
   }
 
@@ -1830,44 +1854,30 @@ FunctionType MapOp::getBodyFunctionType() {
   );
 }
 
-/// Build the *actual* function type for iteration `elemIdx`.
-/// - Concrete tuple inputs contribute their element at this index.
-/// - Polymorphic tuple inputs contribute the body’s own formal at that position,
-///   so unification sees “actual = formal” (no new binding).
-/// - Result is the element type of the op’s result tuple at `elemIdx`.
-FunctionType MapOp::getFunctionTypeForIteration(unsigned elemIdx) {
-  assert(getArity() && "MapOp::getFunctionTypeForIteration requires known arity");
+/// What iteration `elemIdx` supplies to the body, by position in its signature.
+/// - A concrete input contributes its element at this index.
+/// - An input whose arity this op does not know names no element there, so it
+///   supplies no type and the position carries none.
+/// - What the body yields is the element the op’s own result tuple spells at
+///   this index.
+SmallVector<Type> MapOp::getSuppliedTypesForIteration(unsigned elemIdx) {
+  assert(getArity() && "MapOp::getSuppliedTypesForIteration requires known arity");
 
-  SmallVector<Type> argTys;
-  FunctionType calleeTy = getBodyFunctionType();
-
-  for (auto [inputIdx, v] : llvm::enumerate(getInputs())) {
-    if (auto tt = dyn_cast<TupleType>(v.getType())) {
-      argTys.push_back(tt.getType(elemIdx));
-    } else {
-      // input is !tuple.poly — use the body’s formal at this position
-      argTys.push_back(calleeTy.getInput(inputIdx));
-    }
+  SmallVector<Type> supplied;
+  for (Value input : getInputs()) {
+    auto tt = dyn_cast<TupleType>(input.getType());
+    supplied.push_back(tt ? tt.getType(elemIdx) : Type());
   }
+  supplied.push_back(getResultTupleType().getType(elemIdx));
 
-  Type resultElemTy = getResultTupleType().getType(elemIdx);
-  return FunctionType::get(getContext(), argTys, resultElemTy);
+  return supplied;
 }
 
 FailureOr<trait::SpecializationMap> MapOp::buildSubstitutionForIteration(
     unsigned int i,
     function_ref<InFlightDiagnostic()> errFn) {
-  auto module = getOperation()->getParentOfType<ModuleOp>();
-  if (!module) {
-    if (errFn) errFn() << "not in a module";
-    return failure();
-  }
-
-  auto bodyTy = getBodyFunctionType();
-  auto iterationTy = getFunctionTypeForIteration(i);
-
-  auto subst = trait::buildSpecialization(bodyTy, iterationTy, module, errFn);
-  return subst;
+  return matchBodyToIteration(getBodyFunctionType(),
+                              getSuppliedTypesForIteration(i), errFn);
 }
 
 }

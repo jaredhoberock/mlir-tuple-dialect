@@ -78,13 +78,13 @@ func.func @unknown_arity_non_pure_arg(%init: i32, %xs: !T) -> !T {
 }
 
 // -----
-// unknown arity: init must fit accumulator formal
+// unknown arity: init must fit accumulator formal, which admits only a tuple
 
 !T = !tuple.poly<0>
 !A = !tuple.poly<1> // tuple-shaped formal for accumulator
 !E = !trait.poly<0> // element formal for the the per-element arg
 func.func @unknown_arity_bad_init(%init: i32, %xs: !T) -> !A {
-  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected a tuple type, but found 'i32'}}
+  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected '!tuple.poly<1>' but found 'i32'}}
   %res = tuple.foldl %init, %xs : i32, !T -> !A {
   ^bb0(%acc: !A, %e: !E):
     yield %acc : !A
@@ -93,13 +93,14 @@ func.func @unknown_arity_bad_init(%init: i32, %xs: !T) -> !A {
 }
 
 // -----
-// unknown arity: closure check fails (accFormal != yieldFormal)
+// unknown arity: closure check fails (the yield is no tuple, so it is no
+// accumulator)
 
 !T = !tuple.poly<0>
 !A = !tuple.poly<1> // tuple-shaped accumulator formal
 !E = !trait.poly<0>
 func.func @unknown_arity_bad_closure(%init: !A, %xs: !T) -> !A {
-  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected a tuple type, but found 'i32'}}
+  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected '!tuple.poly<1>' but found 'i32'}}
   %res = tuple.foldl %init, %xs : !A, !T -> !A {
   ^bb0(%acc: !A, %e: !E):
     %c = arith.constant 0 : i32
@@ -114,7 +115,7 @@ func.func @unknown_arity_bad_closure(%init: !A, %xs: !T) -> !A {
 !T = !tuple.poly<0>
 !E = !trait.poly<0>
 func.func @unknown_arity_bad_result_formal(%init: i32, %xs: !T) -> f32 {
-  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected 'f32' but found 'i32'}}
+  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected 'i32' but found 'f32'}}
   %res = tuple.foldl %init, %xs : i32, !T -> f32 {
   ^bb0(%acc: i32, %e: !E):
     yield %acc : i32
@@ -139,7 +140,7 @@ func.func @known_arity_unify_fail(%init: i32, %xs: tuple<i32>) -> i32 {
 // known arity: final result must match threaded accumulator type
 
 func.func @known_arity_bad_result(%init: i32, %xs: tuple<i32>) -> f32 {
-  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected 'f32' but found 'i32'}}
+  // expected-error @+1 {{'tuple.foldl' op type mismatch: expected 'i32' but found 'f32'}}
   %res = tuple.foldl %init, %xs : i32, tuple<i32> -> f32 {
   ^bb0(%acc: i32, %e: i32):
     yield %acc : i32

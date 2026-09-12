@@ -76,7 +76,7 @@ def AllOp : TupleOp<"all", [
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
-    FunctionType getFunctionTypeForIteration(unsigned int i);
+    SmallVector<Type> getSuppliedTypesForIteration(unsigned int i);
 
     // this method succeeds only when the input tuple is a concrete TupleType
     // element types of the input tuple are still allowed to be polymorphic
@@ -284,7 +284,7 @@ def ExclusiveScanOp : TupleOp<"exclusive_scan", [
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
-    FunctionType getFunctionTypeForIteration(unsigned i, Type accumulatorType);
+    SmallVector<Type> getSuppliedTypesForIteration(unsigned i, Type accumulatorType);
 
     FailureOr<trait::SpecializationMap> buildSubstitutionForIteration(
         unsigned i,
@@ -351,7 +351,7 @@ def FlatMapOp : TupleOp<"flat_map", [
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
-    FunctionType getFunctionTypeForIteration(unsigned int i);
+    SmallVector<Type> getSuppliedTypesForIteration(unsigned int i);
 
     // this method succeeds only when the input tuple is a concrete TupleType
     // element types of the input tuple are still allowed to be polymorphic
@@ -466,7 +466,7 @@ def FoldlOp : TupleOp<"foldl", [
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
-    FunctionType getFunctionTypeForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
+    SmallVector<Type> getSuppliedTypesForIteration(unsigned int i, Type resultTypeOfPreviousIteration);
 
     //===------------------------------------------------------------------===//
     // OpAsmOpInterface Methods
@@ -638,7 +638,7 @@ def MapOp : TupleOp<"map", [
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
-    FunctionType getFunctionTypeForIteration(unsigned int i);
+    SmallVector<Type> getSuppliedTypesForIteration(unsigned int i);
 
     //===------------------------------------------------------------------===//
     // OpAsmOpInterface Methods
