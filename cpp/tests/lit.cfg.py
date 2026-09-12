@@ -21,6 +21,10 @@ def tool(name):
 def plugin(env_var, fallback):
     return os.environ.get(env_var, fallback)
 
+# Tools the RUN lines name bare (`not`) resolve the same way `tool()` does: the
+# install's bin first, then the build tree's.
+config.environment['PATH'] = os.pathsep.join([llvm_bin, fallback_llvm_bin, os.environ.get('PATH', '')])
+
 config.name = "Tuple Dialect Tests"
 trait_plugin = plugin('TRAIT_DIALECT_PLUGIN', os.path.join(os.path.dirname(__file__), '../../../mlir-trait-dialect/cpp/build/libtrait_dialect.so'))
 tuple_plugin = plugin('TUPLE_DIALECT_PLUGIN', os.path.join(os.path.dirname(__file__), '..', 'build', 'libtuple_dialect.so'))
