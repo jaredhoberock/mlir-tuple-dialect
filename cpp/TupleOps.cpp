@@ -296,9 +296,13 @@ FailureOr<Type> AppendOp::inferResultType(
 
   MLIRContext *ctx = tupleTy.getContext();
 
-  // poly case -> fresh poly result
+  // An opaque polymorphic tuple determines no append result: which tuple it
+  // stands for is what says what appending to it yields. Construction supplies
+  // the result type there; this reads one off the operands or refuses.
   if (trait::isPolymorphicType(tupleTy)) {
-    return PolyType::getUnique(ctx);
+    if (errFn) errFn() << "tuple operand must be a concrete tuple type, got "
+                       << tupleTy;
+    return failure();
   }
 
   // concrete TupleType case: concatenate element types
@@ -430,9 +434,13 @@ FailureOr<Type> CatOp::inferResultType(Type lhsTy, Type rhsTy, llvm::function_re
 
   MLIRContext *ctx = lhsTy.getContext();
 
-  // poly case -> fresh poly result
+  // An opaque polymorphic operand determines no concatenation: which tuple it
+  // stands for is what says how long the result is. Construction supplies the
+  // result type there.
   if (trait::isPolymorphicType(lhsTy) || trait::isPolymorphicType(rhsTy)) {
-    return PolyType::getUnique(ctx);
+    if (errFn) errFn() << "operands must be concrete tuple types, got " << lhsTy
+                       << " and " << rhsTy;
+    return failure();
   }
 
   // concrete TupleType case: concatenate element types
@@ -540,18 +548,23 @@ static FailureOr<Type> getFormalClaimsTypeForCmpOp(
     return failure();
   }
 
+  // The formal built here is a declaration of its own -- a pattern whose
+  // parameters the operand's spelling is read against -- so its labels start at
+  // 0 and are local to it.
+
   // unknown arity -> expect !tuple.poly
   if (!arity)
-    return tuple::PolyType::getUnique(ctx);
+    return tuple::PolyType::get(ctx, 0);
 
   auto LT = dyn_cast<TupleType>(L);
   auto RT = dyn_cast<TupleType>(R);
 
-  // if exactly one side is concrete, synthesize a tuple with unique poly elements for the other
+  // if exactly one side is concrete, the other's elements are this formal's own
+  // parameters, one per position
   if (!LT)
-    LT = getTupleTypeWithUniquePolymorphicElements(ctx, *arity);
+    LT = getTupleTypeWithPolymorphicElements(ctx, *arity, /*firstLabel=*/0);
   else if (!RT)
-    RT = getTupleTypeWithUniquePolymorphicElements(ctx, *arity);
+    RT = getTupleTypeWithPolymorphicElements(ctx, *arity, /*firstLabel=*/0);
 
   // now both must be TupleType
   assert(LT && RT && "Expected both LT and RT to be TupleType");
@@ -995,9 +1008,13 @@ FailureOr<Type> DropLastOp::inferResultType(Type inputTy, function_ref<InFlightD
     return failure();
   }
 
-  // polymorphic case: result is a fresh poly
-  if (isa<PolyType>(inputTy))
-    return PolyType::getUnique(inputTy.getContext());
+  // An opaque polymorphic tuple determines no prefix: which tuple it stands for
+  // is what says what dropping its last element yields. Construction supplies
+  // the result type there.
+  if (isa<PolyType>(inputTy)) {
+    if (errFn) errFn() << "input must be a concrete tuple type, got " << inputTy;
+    return failure();
+  }
 
   // concrete case
   auto tupleTy = dyn_cast<TupleType>(inputTy);
@@ -1195,9 +1212,14 @@ FailureOr<Type> FlatMapOp::inferIntermediateMapType(function_ref<InFlightDiagnos
   MLIRContext *ctx = getContext();
   auto arity = getArity();
 
-  // if we don't know the arity, the input is polymorphic
-  // in that case the only sensible intermediate result type is !tuple.poly<unique>
-  if (!arity) return PolyType::getUnique(ctx);
+  // An opaque polymorphic input names no element positions, so the intermediate
+  // map stands for some tuple: a variable of the declaration this op sits in,
+  // labelled past every label that declaration already binds so the
+  // declaration's own substitution leaves it alone.
+  if (!arity)
+    return PolyType::get(
+        ctx, trait::PolyType::get(ctx,
+                                  trait::firstUnusedPolyLabel(getOperation())));
 
   // degenerate case: tuple<> -> map result is also tuple<>
   if (*arity == 0) return TupleType::get(ctx, {});
@@ -1574,9 +1596,13 @@ FailureOr<Type> LastOp::inferResultType(Type inputTy, function_ref<InFlightDiagn
     return failure();
   }
 
-  // polymorphic case: result is !trait.poly
-  if (isa<PolyType>(inputTy))
-    return trait::PolyType::getUnique(inputTy.getContext());
+  // An opaque polymorphic tuple determines no last element: which tuple it
+  // stands for is what says what its last element is. Construction supplies the
+  // result type there.
+  if (isa<PolyType>(inputTy)) {
+    if (errFn) errFn() << "input must be a concrete tuple type, got " << inputTy;
+    return failure();
+  }
 
   // concrete case
   auto tupleTy = dyn_cast<TupleType>(inputTy);

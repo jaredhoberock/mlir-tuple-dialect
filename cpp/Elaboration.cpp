@@ -193,8 +193,12 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
     //   %resi = AND or OR with %acc
     //   yield %resi : i1
     {
-      Type Li = trait::PolyType::getUnique(ctx);
-      Type Ri = trait::PolyType::getUnique(ctx);
+      // The element formals are this body's own variables, labelled past every
+      // label the enclosing declaration binds so its substitution leaves them
+      // standing until the fold is unrolled.
+      unsigned firstLabel = trait::firstUnusedPolyLabel(op);
+      Type Li = trait::PolyType::get(ctx, firstLabel);
+      Type Ri = trait::PolyType::get(ctx, firstLabel + 1);
       Type Ci = trait::ClaimType::get(ctx, op.getTraitRefAttr(), {Li,Ri});
 
       Block *body = rewriter.createBlock(&fold.getBody());
@@ -318,8 +322,12 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
     {
       PatternRewriter::InsertionGuard guard(rewriter);
 
-      Type Li = trait::PolyType::getUnique(ctx);
-      Type Ri = trait::PolyType::getUnique(ctx);
+      // The element formals are this body's own variables, labelled past every
+      // label the enclosing declaration binds so its substitution leaves them
+      // standing until the fold is unrolled.
+      unsigned firstLabel = trait::firstUnusedPolyLabel(op);
+      Type Li = trait::PolyType::get(ctx, firstLabel);
+      Type Ri = trait::PolyType::get(ctx, firstLabel + 1);
       Type Ci = trait::ClaimType::get(ctx, op.getTraitRefAttr(), {Li, Ri});
 
       Block *body = rewriter.createBlock(&fold.getBody());
@@ -406,8 +414,8 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
     //
     // =>
     //
-    // !P = !tuple.poly<unique>
-    // !N = !tuple.poly<unique> // this type will be inferred
+    // !P = !tuple.poly<k>   // a variable of the enclosing declaration
+    // !N = !tuple.poly<k+2>
     //
     // %first = tuple.make (%init : !I) -> tuple<!I>
     // %res = tuple.foldl %first, %input : tuple<!I>, !T -> !R {
@@ -437,9 +445,15 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
       Block &oldBody = op.getBody().front();
       Type elemTy = oldBody.getArgument(1).getType();
 
+      // The prefix state, the accumulator and the appended state are this
+      // body's own variables, labelled past every label the enclosing
+      // declaration binds so its substitution leaves them standing until the
+      // fold is unrolled.
+      unsigned firstLabel = trait::firstUnusedPolyLabel(op);
+
       // polymorphic prefix state type:
-      // !P = !tuple.poly<unique>
-      Type stateTy = PolyType::getUnique(ctx);
+      // !P = !tuple.poly<firstLabel>
+      Type stateTy = PolyType::get(ctx, trait::PolyType::get(ctx, firstLabel));
 
       // new fold body:
       // ^bb0(%prev: !P, %e: !E)
@@ -450,10 +464,10 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
       Value elem = newBody->getArgument(1);
 
       // %acc = tuple.last %prev : !P -> !A
-      // The accumulator type is a fresh poly var: minted here explicitly,
-      // because inference refuses to invent ids (the input is an opaque
-      // poly tuple, so the element type is not determined by it).
-      Type accTy = trait::PolyType::getUnique(ctx);
+      // The accumulator type is spelled here explicitly, because inference
+      // refuses to invent one (the input is an opaque poly tuple, so the
+      // element type is not determined by it).
+      Type accTy = trait::PolyType::get(ctx, firstLabel + 1);
       rewriter.setInsertionPointToStart(newBody);
       Value acc = LastOp::create(rewriter, loc, accTy, prev);
 
@@ -471,10 +485,10 @@ struct ExclusiveScanOpLowering : public OpRewritePattern<ExclusiveScanOp> {
       Value yielded = oldYield.getOperand();
 
       // %next = tuple.append %prev, %yielded : !P, !Y -> !N
-      // The appended type is a fresh poly var: minted here explicitly,
-      // because inference refuses to invent ids (the input is an opaque
-      // poly tuple, so the result type is not determined by it).
-      Type nextTy = PolyType::getUnique(ctx);
+      // The appended type is spelled here explicitly, because inference refuses
+      // to invent one (the input is an opaque poly tuple, so the result type is
+      // not determined by it).
+      Type nextTy = PolyType::get(ctx, trait::PolyType::get(ctx, firstLabel + 2));
       rewriter.setInsertionPoint(oldYield);
       Value next = AppendOp::create(rewriter, loc, nextTy, prev, yielded);
 

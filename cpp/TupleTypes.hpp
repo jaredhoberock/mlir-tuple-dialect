@@ -16,10 +16,15 @@ namespace mlir::tuple {
 // it not, returns the Type of the first failing element
 std::optional<Type> firstElementTypeWithoutImplForTrait(TupleType tuple_ty, mlir::trait::TraitOp traitOp);
 
-inline TupleType getTupleTypeWithUniquePolymorphicElements(MLIRContext* ctx, unsigned int arity) {
+// A tuple of `arity` distinct type parameters, labelled consecutively from
+// `firstLabel`. The caller owns the declaration these parameters belong to and
+// says where its labels start.
+inline TupleType getTupleTypeWithPolymorphicElements(MLIRContext* ctx,
+                                                     unsigned int arity,
+                                                     unsigned int firstLabel) {
   SmallVector<Type> elemPolys;
   for (unsigned int i = 0; i < arity; ++i) {
-    elemPolys.push_back(trait::PolyType::getUnique(ctx));
+    elemPolys.push_back(trait::PolyType::get(ctx, firstLabel + i));
   }
   return TupleType::get(ctx, elemPolys);
 }

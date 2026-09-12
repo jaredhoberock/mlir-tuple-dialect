@@ -96,8 +96,23 @@ struct CatOpCanonicalization : public OpRewritePattern<CatOp> {
       Value a = innerCat.getLhs();
       Value b = innerCat.getRhs();
 
-      auto bc = CatOp::create(rewriter, op.getLoc(), b, rhs);
-      rewriter.replaceOpWithNewOp<CatOp>(op, a, bc.getResult());
+      // The inner concatenation's type is read off its operands where they are
+      // concrete tuples. Where either is an opaque polymorphic tuple its length
+      // is not determined, so the result stands for some tuple: a variable of
+      // the enclosing declaration, labelled past every label that declaration
+      // binds so its substitution leaves it alone.
+      auto inferred = CatOp::inferResultType(b.getType(), rhs.getType());
+      Type innerTy =
+          succeeded(inferred)
+              ? *inferred
+              : Type(PolyType::get(
+                    op.getContext(),
+                    trait::PolyType::get(op.getContext(),
+                                         trait::firstUnusedPolyLabel(op))));
+
+      auto bc = CatOp::create(rewriter, op.getLoc(), innerTy, b, rhs);
+      rewriter.replaceOpWithNewOp<CatOp>(op, op.getResult().getType(), a,
+                                         bc.getResult());
       return success();
     }
 

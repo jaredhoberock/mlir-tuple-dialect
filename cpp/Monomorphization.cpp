@@ -79,8 +79,8 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
 
     // create:
     //
-    // !S = trait.poly<unique>
-    // !O = trait.poly<unique>
+    // !S = trait.poly<0>
+    // !O = trait.poly<1>
     // trait.trait @tuple.Map<mapped-trait-name>[!S,!O] attributes {
     //   tuple.impl_generator = "map",
     //   tuple.mapped_trait = @<mapped-trait-name>
@@ -94,8 +94,10 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     // per-element claims is what its impl binds, so an impl for a given pair
     // of tuples determines it rather than a caller having to spell it.
 
-    Type S = trait::PolyType::getUnique(ctx);
-    Type O = trait::PolyType::getUnique(ctx);
+    // The two parameters of the trait being built, labelled by their position in
+    // its own header: a label is local to the declaration that binds it.
+    Type S = trait::PolyType::get(ctx, 0);
+    Type O = trait::PolyType::get(ctx, 1);
 
     auto trait = trait::TraitOp::create(rewriter,
       loc,

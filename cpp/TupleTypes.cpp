@@ -92,17 +92,6 @@ void registerTupleDataLayoutInterface(MLIRContext* ctx) {
 // PolyType
 //===----------------------------------------------------------------------===//
 
-PolyType PolyType::getUnique(MLIRContext* ctx) {
-  trait::PolyType inner = trait::PolyType::getUnique(ctx);
-  return PolyType::get(ctx, inner);
-}
-
-// XXX TODO A parameter stands for itself; nothing mints a variable for one any
-// more. Deleted when `GenericTypeInterface` loses `instantiate`.
-Type PolyType::instantiate(trait::InstantiationMap &, uint64_t &) {
-  return *this;
-}
-
 Type PolyType::specializeWith(const trait::SpecializationMap &subst) const {
   // specialize the parameter this type constrains
   trait::PolyType inner = getInner();
@@ -125,33 +114,36 @@ Type PolyType::specializeWith(const trait::SpecializationMap &subst) const {
 
 Type PolyType::parse(AsmParser &parser) {
   // These spellings are valid:
-  // !tuple.poly<unique>
   // !tuple.poly<N>
   // !tuple.poly<!trait.poly<N>>
 
   MLIRContext *ctx = parser.getContext();
-  
+
   if (parser.parseLess())
     return {};
 
   trait::PolyType inner;
-  if (succeeded(parser.parseOptionalKeyword("unique"))) {
-    inner = trait::PolyType::getUnique(ctx);
+  llvm::SMLoc labelLoc = parser.getCurrentLocation();
+  int label;
+  auto intResult = parser.parseOptionalInteger(label);
+  if (intResult.has_value() && succeeded(*intResult)) {
+    // A label names a position in the declaration that binds it, so it is
+    // non-negative; a negative one names no position.
+    if (label < 0) {
+      parser.emitError(labelLoc, "a !trait.poly label is non-negative; found ")
+          << label;
+      return {};
+    }
+    inner = trait::PolyType::get(ctx, label);
   } else {
-    int uniqueId;
-    auto intResult = parser.parseOptionalInteger(uniqueId);
-    if (intResult.has_value() && succeeded(*intResult)) {
-      inner = trait::PolyType::get(ctx, uniqueId);
-    } else {
-      Type innerType;
-      if (parser.parseType(innerType))
-        return {};
-      inner = llvm::dyn_cast<trait::PolyType>(innerType);
-      if (!inner) {
-        parser.emitError(parser.getCurrentLocation(),
-                         "inner type of !tuple.poly must be !trait.poly");
-        return {};
-      }
+    Type innerType;
+    if (parser.parseType(innerType))
+      return {};
+    inner = llvm::dyn_cast<trait::PolyType>(innerType);
+    if (!inner) {
+      parser.emitError(parser.getCurrentLocation(),
+                       "inner type of !tuple.poly must be !trait.poly");
+      return {};
     }
   }
 
@@ -162,7 +154,7 @@ Type PolyType::parse(AsmParser &parser) {
 }
 
 void PolyType::print(AsmPrinter &printer) const {
-  printer << "<" << getInner().getUniqueId() << ">";
+  printer << "<" << getInner().getLabel() << ">";
 }
 
 } // end mlir::tuple
