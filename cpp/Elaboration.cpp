@@ -161,6 +161,11 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
     if (!claims)
       return rewriter.notifyMatchFailure(op, "claims operand required");
 
+    // The fold reads one claim per element position, so a claims operand still
+    // named by the mapper's associated type waits for its resolution.
+    if (isa<trait::ProjectionType>(claims.getType()))
+      return rewriter.notifyMatchFailure(op, "claims type is an unresolved projection");
+
     // handle empty tuples directly so that we do not attempt to call a method below
     if (auto arity = op.getArity(); arity && *arity == 0) {
       const bool val = method == "eq";
@@ -249,6 +254,11 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
     Value claims = op.getClaims();
     if (!claims)
       return rewriter.notifyMatchFailure(op, "claims operand required");
+
+    // The fold reads one claim per element position, so a claims operand still
+    // named by the mapper's associated type waits for its resolution.
+    if (isa<trait::ProjectionType>(claims.getType()))
+      return rewriter.notifyMatchFailure(op, "claims type is an unresolved projection");
 
     // handle empty tuples directly so that we do not attempt to call a method below
     if (auto arity = op.getArity(); arity && *arity == 0) {

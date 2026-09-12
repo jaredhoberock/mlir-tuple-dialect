@@ -173,6 +173,11 @@ def CmpOp : TupleOp<"cmp", [
     FlatSymbolRefAttr getTraitRefAttr();
     StringRef getTraitName();
     StringRef getMethodName();
+
+    /// The claims operand's type while the mapper that supplies it has not
+    /// been resolved: the projection of `Claims` from the trait that maps
+    /// this comparison across the elements of these two tuple operands.
+    Type getMapperClaimsProjection();
   }];
 
   let hasCustomAssemblyFormat = 1;

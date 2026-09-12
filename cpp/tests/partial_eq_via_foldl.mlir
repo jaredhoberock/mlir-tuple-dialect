@@ -3,6 +3,11 @@
 
 // RUN: mlir-opt --pass-pipeline="builtin.module(monomorphize-trait,inline)" %s | FileCheck %s
 
+// A polymorphic tuple impl of @PartialEq written against the mapper trait:
+// the impl asks the mapper for the tuple of elementwise claims and hands it to
+// tuple.cmp, whose lowering folds @PartialEq::@eq across the elements. The
+// mapper's impl for the demanded pair of tuples is generated here.
+
 !S = !trait.poly<0>
 !O = !trait.poly<1>
 trait.trait private @PartialEq[!S,!O] {
@@ -23,43 +28,34 @@ trait.impl private for @PartialEq[f64,f64] {
   }
 }
 
-// this trait maps the PartialEq trait over a tuple's element types
-// and provides a tuple of their claims
+// this trait maps the PartialEq trait over the elements of two tuples and
+// binds the tuple of their claims as its @Claims associated type
 !MapPartialEqS = !trait.poly<2>
 !MapPartialEqO = !trait.poly<3>
-!MapPartialEqC = !trait.poly<4>
-trait.trait private @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO,!MapPartialEqC] attributes {
+trait.trait private @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO] attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
-  func.func private @claims() -> !MapPartialEqC
+  trait.assoc_type @Claims
+  func.func private @claims()
+    -> !trait.proj<@tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO], "Claims">
 }
 
 // this is the polymorphic tuple impl of PartialEq
 !TS = !tuple.poly<5>
 !TO = !tuple.poly<6>
-!TC = !tuple.poly<7>
-!ES = !trait.poly<8>
-!EO = !trait.poly<9>
 trait.impl private @tuple.PartialEq for @PartialEq[!TS,!TO] where [
-  @tuple.MapPartialEq[!TS,!TO,!TC]
+  @tuple.MapPartialEq[!TS,!TO]
 ] {
   func.func @eq(%self: !TS, %other: !TO) -> i1 {
-    // first get a tuple of elementwise PartialEq claims
-    %a = trait.assume @tuple.MapPartialEq[!TS,!TO,!TC]
-    %claims = trait.method.call %a @tuple.MapPartialEq[!TS,!TO,!TC]::@claims()
-      : () -> !TC
+    // first get a tuple of elementwise @PartialEq claims
+    %a = trait.assume @tuple.MapPartialEq[!TS,!TO]
+    %claims = trait.method.call %a @tuple.MapPartialEq[!TS,!TO]::@claims()
+      : () -> !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
 
     // fold @PartialEq::@eq over the tuples
-    %init = arith.constant 1 : i1
-
-    %res = tuple.foldl %init, %self, %other, %claims : i1, !TS, !TO, !TC -> i1 {
-    ^bb0(%acc: i1, %s: !ES, %o: !EO, %c: !trait.claim<@PartialEq[!ES,!EO]>):
-      %eq = trait.method.call %c @PartialEq[!ES,!EO]::@eq(%s, %o)
-        : (!ES,!EO) -> i1
-      %res = arith.andi %acc, %eq : i1
-      yield %res : i1
-    }
+    %res = tuple.cmp eq, %self, %other, %claims
+      : !TS, !TO, !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
     return %res : i1
   }
 }

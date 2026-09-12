@@ -14,25 +14,28 @@ template<class Range> SmallVector<Type> toTypes(const Range& types) {
   });
 }
 
-static std::optional<unsigned> getArityOfFirstTuple(TypeRange types) {
-  for (Type ty : types) {
-    if (auto tup = dyn_cast<TupleType>(ty)) {
-      unsigned a = tup.size();
-      return a;
-    }
-  }
-  return std::nullopt;
-}
+/// The pair of tuple types a generator answers a two-argument demand with, or
+/// failure when the demand is not two tuples of equal arity, or still mentions
+/// a type variable.
+///
+/// A generator answers for the application it was asked about and no other, so
+/// a demand that instantiation has not yet made concrete gets no impl: the
+/// obligation stays pending until the types it maps over are known.
+static FailureOr<std::pair<TupleType, TupleType>>
+groundTuplePair(trait::ClaimType wanted) {
+  auto typeArgs = wanted.getTraitApplication().getTypeArgs();
+  if (typeArgs.size() != 2)
+    return failure();
 
-static SmallVector<TupleType> getTupleTypesWithUniquePolymorphicElements(
-    MLIRContext* ctx,
-    unsigned numTuples,
-    unsigned arity) {
-  SmallVector<TupleType> result;
-  for (int i = 0; i < numTuples; ++i) {
-    result.push_back(getTupleTypeWithUniquePolymorphicElements(ctx, arity));
-  }
-  return result;
+  if (llvm::any_of(typeArgs, [](Type ty) { return trait::isPolymorphicType(ty); }))
+    return failure();
+
+  auto lhs = dyn_cast<TupleType>(typeArgs[0]);
+  auto rhs = dyn_cast<TupleType>(typeArgs[1]);
+  if (!lhs || !rhs || lhs.size() != rhs.size())
+    return failure();
+
+  return std::make_pair(lhs, rhs);
 }
 
 static LogicalResult matchGenerator(trait::TraitOp trait,
@@ -77,34 +80,23 @@ static FailureOr<Type> homogeneousTupleElement(Type ty) {
 }
 
 static SmallVector<trait::ClaimType> mapTraitAcrossTupleElements(
-    MLIRContext *ctx,
     FlatSymbolRefAttr traitRef,
-    ArrayRef<TupleType> tupleTypes) {
+    TupleType lhs,
+    TupleType rhs) {
   using namespace mlir::trait;
 
-  // given tupleTypes := Ti..Tn,
-  // where each Ti := tuple<TiE0, TiE1, .. T1iEm>,
+  // given lhs := tuple<L0..Lm> and rhs := tuple<R0..Rm>,
   // we want to produce a list of ClaimTypes:
   //
-  // !trait.claim<@Trait[T0E0..TnE0]> .. !trait.claim<@Trait[T0Em..TnEm]>
+  // !trait.claim<@Trait[L0,R0]> .. !trait.claim<@Trait[Lm,Rm]>
 
-  SmallVector<ClaimType> claims;
-
-  // collect claim i created by applying the trait
-  // to element i of each tuple in order
-  unsigned m = tupleTypes.front().size();
-  for (unsigned i = 0; i < m; ++i) {
-    // get element i from each tuple
-    SmallVector<Type> elements;
-    for (auto tup : tupleTypes) {
-      elements.push_back(tup.getType(i));
-    }
-
-    // apply the trait to these elements 
-    claims.push_back(ClaimType::get(ctx, traitRef, elements));
-  }
-
-  return claims;
+  MLIRContext *ctx = lhs.getContext();
+  return llvm::map_to_vector(
+    llvm::zip_equal(lhs.getTypes(), rhs.getTypes()),
+    [&](auto elements) {
+      auto [Li, Ri] = elements;
+      return ClaimType::get(ctx, traitRef, {Li, Ri});
+    });
 }
 
 /// TupleGenerator synthesizes impls for traits that declare themselves as the
@@ -144,13 +136,8 @@ struct TupleGenerator : trait::ImplGenerator {
     auto noAssumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{});
     std::string implName = ImplOp::generateSymName(
         claim.getTraitApplication(), noAssumptions);
-    for (ImplOp existing : module.getOps<ImplOp>())
-      if (existing.getSymName() == implName)
-        return failure();
 
     // Tuple has no methods or associated types, so the impl body stays empty.
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToEnd(module.getBody());
     return ImplOp::create(builder, loc, implName,
                           claim.getTraitApplication(),
                           ArrayRef<TraitApplicationAttr>{});
@@ -195,67 +182,56 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
     auto noAssumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{});
     std::string implName = ImplOp::generateSymName(
         claim.getTraitApplication(), noAssumptions);
-    for (ImplOp existing : module.getOps<ImplOp>())
-      if (existing.getSymName() == implName)
-        return failure();
 
-    // The impl body contains only the Element associated-type binding.
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToEnd(module.getBody());
-    ImplOp impl = ImplOp::create(builder, loc, implName,
+    // The impl is built whole on a detached builder and inserted once, so a
+    // half-built impl is never a candidate. Its body contains only the
+    // Element associated-type binding.
+    OpBuilder detached(ctx);
+    ImplOp impl = ImplOp::create(detached, loc, implName,
                                  claim.getTraitApplication(),
                                  ArrayRef<TraitApplicationAttr>{});
 
-    Block &body = impl.getBody().front();
-    OpBuilder::InsertionGuard bodyGuard(builder);
-    builder.setInsertionPointToStart(&body);
-    AssocTypeOp::create(builder, loc, "Element",
+    detached.setInsertionPointToStart(&impl.getBody().front());
+    AssocTypeOp::create(detached, loc, "Element",
                         TypeAttr::get(*elementTy), ArrayAttr{});
+
+    builder.insert(impl);
     return impl;
   }
 };
 
-/// MapGenerator synthesizes `trait.impl`s for traits that declare themselves
-/// as "map" generators over tuple arguments.
+/// MapGenerator synthesizes the `trait.impl` of a "map" trait: the trait that
+/// maps another trait across the elements of two tuples and binds the tuple of
+/// the resulting claims as its `Claims` associated type.
 ///
-/// A "map" generator allows you to define a trait that, given one or more
-/// tuple type arguments, produces a new tuple of per-element claims by
-/// applying some other trait elementwise. For example:
-///
-///   trait.trait @tuple.MapEq[!T, !R] attributes {
+///   trait.trait @tuple.MapEq[!S, !O] attributes {
 ///     tuple.impl_generator = "map",
 ///     tuple.mapped_trait   = @Eq
 ///   } {
-///     func.func private @claims() -> !R
+///     trait.assoc_type @Claims
+///     func.func private @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///   }
 ///
 /// For a wanted claim like:
 ///
-///   !trait.claim<@tuple.MapEq[tuple<i32>, tuple<!trait.claim<@Eq[i32]>>]>
+///   !trait.claim<@tuple.MapEq[tuple<i32>, tuple<i64>]>
 ///
-/// this generator synthesizes an impl of the form:
+/// this generator answers with the impl for exactly that application:
 ///
-///   trait.impl @tuple.MapEq_impl_arity1
-///     for @tuple.MapEq[tuple<!trait.poly<0>>,
-///                      tuple<!trait.claim<@Eq[!trait.poly<0>]>>]
-///     where [@Eq[!trait.poly<0>]] {
-///       func.func private @claims() -> tuple<!trait.claim<@Eq[!trait.poly<0>]>> {
-///         %c0 = trait.assume @Eq[!trait.poly<0>]
+///   trait.impl @... for @tuple.MapEq[tuple<i32>, tuple<i64>]
+///     where [@Eq[i32, i64]] {
+///       trait.assoc_type @Claims = tuple<!trait.claim<@Eq[i32,i64]>>
+///       func.func private @claims() -> tuple<!trait.claim<@Eq[i32,i64]>> {
+///         %c0 = trait.assume @Eq[i32,i64]
 ///         %res = tuple.make(%c0)
 ///         return %res
 ///       }
 ///     }
 ///
-/// More generally:
-///   - The leading type arguments must each be either a TupleType or a
-///     type variable. All TupleType arguments must have a consistent arity N.
-///   - For each element position i in 0..N-1, an assumption
-///       @mapped_trait[T0Ei, T1Ei, ..., TkEi]
-///     is generated, where each Ti is one of the leading arguments.
-///   - The final type argument of the self-claim is a tuple of all those
-///     elementwise claims.
-///   - The synthesized impl’s @claims method body builds and returns that
-///     tuple by `trait.assume`ing each per-element claim.
+/// Position i of the two tuples contributes the assumption @Eq[Li, Ri], and
+/// the `Claims` binding is those same applications claimed, in order. A demand
+/// that is not two tuples of equal arity, or that still mentions a type
+/// variable, gets no impl.
 struct MapGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
@@ -263,337 +239,233 @@ struct MapGenerator : trait::ImplGenerator {
                OpBuilder &builder) const override {
     using namespace mlir::trait;
 
-    // trait must opt into this generator and have at least 2 type args
-    // XXX TODO there's no need to actually check the number of args here
-    //          because substituteWith will check that for us below
-    if (failed(matchGenerator(trait, wanted, "map", 2)))
+    // The source bridge selects this generator with tuple.impl_generator =
+    // "map"; the mapper is applied to the two tuple types it maps over.
+    if (failed(matchGenerator(trait, wanted, "map", 2, 2)))
       return failure();
 
     // the tuple.mapped_trait attribute must exist
     auto mappedTrait = trait->getAttrOfType<FlatSymbolRefAttr>("tuple.mapped_trait");
     if (!mappedTrait) return failure();
 
-    // get the arity of the first TupleType in the wanted claim's type args
-    auto arity = getArityOfFirstTuple(wanted.getTraitApplication().getTypeArgs());
-    if (!arity) return failure();
+    // the demanded tuple types are what the trait is mapped across
+    auto tuples = groundTuplePair(wanted);
+    if (failed(tuples)) return failure();
+    auto [lhs, rhs] = *tuples;
 
-    // k: the number of tuple args
-    int k = wanted.getTraitApplication().getTypeArgs().size() - 1;
-
-    // create k fresh polymorphic tuple types of the requested arity n:
-    // Ti := tuple<TiE1..TiEn>
-    // where each TiEj is a unique !trait.poly
-    MLIRContext *ctx = trait.getContext();
-    SmallVector<TupleType> polyTupleTypes = getTupleTypesWithUniquePolymorphicElements(ctx, k, *arity);
-
-    // XXX TODO if we don't end up generating an impl, then we've "wasted" the unique args here
-    //          consider building a guard that reclaims the unused unique IDs
-
-    // create a TupleType representing the trait mapped across the elements of these tuples:
-    // tuple<!trait.claim<@MappedTrait[T1E1..TkE1]>..!trait.claim<@MappedTrait[T1En..TkEn]>>
-    SmallVector<ClaimType> claims = mapTraitAcrossTupleElements(ctx, mappedTrait, polyTupleTypes);
-    TupleType tupleOfClaims = TupleType::get(ctx, toTypes(claims));
-
-    // the type arguments of our impl's claim are
-    // polyTupleTypes followed by tupleOfClaims
-    SmallVector<Type> ourTypeArgs = toTypes(polyTupleTypes);
-    ourTypeArgs.push_back(tupleOfClaims);
-
-    // build the claim of the impl we can generate:
-    // !trait.claim<@Trait[polyTupleTy1..polyTupleTyK, tupleOfClaims]>
-    auto ourTraitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
-    auto ourClaim = ClaimType::get(ctx, ourTraitRef, ourTypeArgs);
-
-    // get the module for the following
+    // Generated impls live at module scope and use the same canonical symbol
+    // name as parser-created trait.impl operations.
     ModuleOp module = trait->getParentOfType<ModuleOp>();
     if (!module) return failure();
 
-    // check that the wanted claim can unify with our formal claim
-    if (failed(buildSpecialization(ourClaim, wanted, module)))
-      return failure();
+    MLIRContext *ctx = builder.getContext();
+    Location loc = builder.getUnknownLoc();
 
-    // build assumptions: one @MappedTrait[...] per element position
+    // the mapped trait applied to each element position in turn:
+    // !trait.claim<@MappedTrait[L0,R0]> .. !trait.claim<@MappedTrait[Lm,Rm]>
+    SmallVector<ClaimType> claims = mapTraitAcrossTupleElements(mappedTrait, lhs, rhs);
+    TupleType tupleOfClaims = TupleType::get(ctx, toTypes(claims));
+
+    // those same applications are the impl's assumptions, one per position
     SmallVector<TraitApplicationAttr> assumptions = llvm::map_to_vector(claims, [](ClaimType c) {
       return c.getTraitApplication();
     });
+    auto assumptionsAttr = PredicateArrayAttr::get(ctx, assumptions);
 
-    // synthesize the trait.impl
-    auto loc = builder.getUnknownLoc();
-    auto name = (trait.getSymName() + Twine("_impl_arity") + Twine(*arity)).str();
-
-    OpBuilder::InsertionGuard guard(builder);
-    builder.setInsertionPointToEnd(module.getBody());
-    ImplOp impl = ImplOp::create(builder, 
-      loc,
-      StringAttr::get(ctx, name),
-      ourClaim.getTraitApplication(),
-      PredicateArrayAttr::get(ctx, assumptions)
+    // the impl answers the demanded application itself
+    auto selfApp = TraitApplicationAttr::get(
+      ctx,
+      FlatSymbolRefAttr::get(ctx, trait.getSymName()),
+      ArrayRef<Type>{lhs, rhs}
     );
 
-    // define the @claims method body:
+    // The impl is built whole on a detached builder and inserted once, so a
+    // half-built impl is never a candidate.
+    OpBuilder detached(ctx);
+    ImplOp impl = ImplOp::create(detached,
+      loc,
+      ImplOp::generateSymName(selfApp, assumptionsAttr),
+      selfApp,
+      assumptionsAttr
+    );
+
+    // the impl's body binds @Claims and defines @claims():
     // - return type: tupleOfClaims
-    // - body: %c0 = trait.assume @MappedTrait[...]
-    //         %c1 = trait.assume @MappedTrait[...]
+    // - body: %c0 = trait.assume @MappedTrait[L0,R0]
+    //         %c1 = trait.assume @MappedTrait[L1,R1]
     //         ...
     //         %res = tuple.make(%c0, %c1, ...)
     //         return %res
     {
-      Block &implBody = impl.getBody().front();
-      OpBuilder::InsertionGuard guard(builder);
-      builder.setInsertionPointToStart(&implBody);
+      detached.setInsertionPointToStart(&impl.getBody().front());
+
+      AssocTypeOp::create(detached, loc, "Claims",
+                          TypeAttr::get(tupleOfClaims), ArrayAttr{});
 
       // func.func private @claims() -> tupleOfClaims
-      FunctionType claimsFnTy = FunctionType::get(ctx, {}, tupleOfClaims);
-      auto claimsFunc = func::FuncOp::create(builder, 
+      auto claimsFunc = func::FuncOp::create(detached,
         loc,
         "claims",
-        claimsFnTy
+        FunctionType::get(ctx, {}, tupleOfClaims)
       );
       claimsFunc.setPrivate();
 
       // build function body
-      Block *entry = claimsFunc.addEntryBlock();
-      builder.setInsertionPointToStart(entry);
+      detached.setInsertionPointToStart(claimsFunc.addEntryBlock());
 
-      // emit trait.assume for each type in the tuple of claims type
-      SmallVector<Value> elements;
-      for (ClaimType c : claims) {
-        auto assume = AssumeOp::create(builder, loc, c);
-        elements.push_back(assume.getResult());
-      }
+      // emit trait.assume for each element position
+      SmallVector<Value> elements = llvm::map_to_vector(claims, [&](ClaimType c) {
+        return Value(AssumeOp::create(detached, loc, c));
+      });
 
-      // tuple.make of all claims
-      auto result = MakeOp::create(builder, loc, elements);
-
-      // return
-      func::ReturnOp::create(builder, loc, result.getResult());
+      // tuple.make of all claims, and return it
+      auto result = MakeOp::create(detached, loc, elements);
+      func::ReturnOp::create(detached, loc, result.getResult());
     }
 
+    builder.insert(impl);
     return impl;
   }
 };
 
-/// TuplePartialEqGenerator synthesizes a polymorphic `trait.impl` of PartialEq for tuples
+/// Builds the impl of a comparison trait for two tuples of equal arity.
+///
+/// The impl answers the demanded pair itself and assumes the mapper for the
+/// same pair; each method asks the mapper for the elementwise claims and hands
+/// them to `tuple.cmp`:
+///
+///   trait.impl @... for @PartialEq[tuple<i32>, tuple<i32>]
+///     where [@tuple.MapPartialEq[tuple<i32>, tuple<i32>]] {
+///     func.func private @eq(%self: tuple<i32>, %other: tuple<i32>) -> i1 {
+///       %a = trait.assume @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
+///       %claims = trait.method.call %a
+///         @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
+///         : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+///       %res = tuple.cmp eq, %self, %other, %claims
+///       return %res : i1
+///     }
+///   }
+static FailureOr<trait::ImplOp> generateTupleCmpImpl(
+    trait::TraitOp trait,
+    trait::ClaimType wanted,
+    ArrayRef<std::pair<StringRef, CmpPredicate>> methods,
+    OpBuilder &builder) {
+  using namespace mlir::trait;
+
+  ModuleOp module = trait->getParentOfType<ModuleOp>();
+  if (!module)
+    return failure();
+
+  // the demanded tuple types are what this impl compares
+  auto tuples = groundTuplePair(wanted);
+  if (failed(tuples)) return failure();
+  auto [lhs, rhs] = *tuples;
+
+  MLIRContext *ctx = builder.getContext();
+  Location loc = builder.getUnknownLoc();
+
+  // the mapper trait must exist: it is what supplies the elementwise claims
+  auto mapperRef = FlatSymbolRefAttr::get(ctx, getMapperTraitName(trait.getSymName()));
+  if (!SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapperRef))
+    return failure();
+
+  auto selfApp = TraitApplicationAttr::get(
+    ctx,
+    FlatSymbolRefAttr::get(ctx, trait.getSymName()),
+    ArrayRef<Type>{lhs, rhs}
+  );
+
+  // one assumption: the mapper over the same pair of tuples
+  auto assumption = TraitApplicationAttr::get(ctx, mapperRef, ArrayRef<Type>{lhs, rhs});
+  auto assumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{assumption});
+
+  // the claims the mapper supplies, named as its associated type until the
+  // mapper's impl resolves the projection into the claim tuple it binds
+  Type claimsTy = ProjectionType::get(ctx, assumption,
+                                      StringAttr::get(ctx, "Claims"),
+                                      /*assocTypeArgs=*/{});
+
+  // The impl is built whole on a detached builder and inserted once, so a
+  // half-built impl is never a candidate.
+  OpBuilder detached(ctx);
+  ImplOp impl = ImplOp::create(detached,
+    loc,
+    ImplOp::generateSymName(selfApp, assumptions),
+    selfApp,
+    assumptions
+  );
+
+  for (auto [methodName, predicate] : methods) {
+    OpBuilder::InsertionGuard guard(detached);
+    detached.setInsertionPointToEnd(&impl.getBody().front());
+
+    auto fnTy = detached.getFunctionType({lhs, rhs}, detached.getI1Type());
+    auto fn = func::FuncOp::create(detached, loc, methodName, fnTy);
+    fn.setPrivate();
+
+    Block *entry = fn.addEntryBlock();
+    detached.setInsertionPointToStart(entry);
+    Value self = entry->getArgument(0);
+    Value other = entry->getArgument(1);
+
+    // %a = trait.assume @tuple.Map<Trait>[lhs,rhs]
+    Value a = AssumeOp::create(detached, loc, assumption);
+
+    // %claims = trait.method.call %a @tuple.Map<Trait>[lhs,rhs]::@claims() : () -> claimsTy
+    Value claims = MethodCallOp::create(detached,
+      loc,
+      /*results=*/TypeRange{claimsTy},
+      /*traitName=*/mapperRef.getValue(),
+      /*methodName=*/"claims",
+      /*claim=*/a,
+      /*arguments=*/ValueRange{}
+    ).getResult(0);
+
+    // %res = tuple.cmp <predicate>, %self, %other, %claims
+    Value res = CmpOp::create(detached, loc, predicate, self, other, claims);
+
+    // return %res : i1
+    func::ReturnOp::create(detached, loc, res);
+  }
+
+  builder.insert(impl);
+  return impl;
+}
+
+/// TuplePartialEqGenerator answers a demanded @PartialEq over two tuples of
+/// equal arity with the impl for exactly that pair.
 struct TuplePartialEqGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
                OpBuilder &builder) const override {
-    using namespace trait;
-
-    // generate the following impl if 
-    // 1. it does not already exist, and
-    // 2. the @tuple.MapPartialEq trait does exist:
-    //
-    // !S = !tuple.poly<unique>
-    // !O = !tuple.poly<unique>
-    // !C = !tuple.poly<unique>
-    // trait.impl @tuple.PartialEq for @PartialEq[!S,!O] where [
-    //   @tuple.MapPartialEq[!S,!O,!C]
-    // ] {
-    //   func.func private @eq(%self: !S, %other: !O) -> i1 {
-    //     %a = trait.assume @tuple.MapPartialEq[!S,!O]
-    //     %claims = trait.method.call %a @tuple.MapPartialEq[!S,!O,!C]::@claims()
-    //       : () -> !C
-    //     %res = tuple.cmp eq, %self, %other, %claims : !S, !O, !C
-    //     return %res : i1
-    //   }
-    // }
-
     // only apply to the PartialEq trait
     if (trait.getSymName() != "PartialEq")
       return failure();
 
-    ModuleOp module = trait->getParentOfType<ModuleOp>();
-    if (!module)
-      return failure();
-
-    MLIRContext *ctx = builder.getContext();
-
-    // if the impl "tuple.PartialEq" already exists, do nothing
-    StringRef implName = "tuple.PartialEq";
-    for (ImplOp existing : module.getOps<ImplOp>())
-      if (existing.getSymName() == implName)
-        return failure();
-
-    // the mapper trait must exist in order to generate the impl
-    auto mapPartialEqRef = FlatSymbolRefAttr::get(ctx, "tuple.MapPartialEq");
-    if (!SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapPartialEqRef))
-      return failure();
-
-    // build polymorphic tuple parameters
-    auto S = tuple::PolyType::getUnique(ctx);
-    auto O = tuple::PolyType::getUnique(ctx);
-    auto C = tuple::PolyType::getUnique(ctx);
-
-    // our impl's claim: !trait.claim<PartialEq[!S,!O]>
-    auto partialEqRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
-    auto ourClaim = ClaimType::get(ctx, partialEqRef, {S,O});
-
-    // one assumption: @tuple.MapPartialEq[!S,!O,!C]
-    auto assumption = TraitApplicationAttr::get(ctx, mapPartialEqRef, {S,O,C});
-    auto assumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{assumption});
-
-    // create impl
-    Location loc = builder.getUnknownLoc();
-    auto impl = ImplOp::create(builder, 
-      loc,
-      implName,
-      ourClaim.getTraitApplication(),
-      assumptions
-    );
-
-    // define method: func private @eq(%self: !S, %other: !O) -> i1
-    {
-      Block &body = impl.getBody().front();
-      builder.setInsertionPointToStart(&body);
-
-      auto i1 = builder.getI1Type();
-      auto eqTy = builder.getFunctionType({S,O}, i1);
-      auto eqFn = func::FuncOp::create(builder, loc, "eq", eqTy);
-      eqFn.setPrivate();
-
-      Block *entry = eqFn.addEntryBlock();
-      builder.setInsertionPointToStart(entry);
-      Value self = entry->getArgument(0);
-      Value other = entry->getArgument(1);
-
-      // %a = trait.assume @tuple.MapPartialEq[!S,!O,!C]
-      Value a = AssumeOp::create(builder, loc, assumption);
-
-      // %claims = trait.method.call %a @tuple.MapPartialEq[!S,!O,!C]::@claims() : () -> !C
-      Value claims = MethodCallOp::create(builder, 
-        loc,
-        /*results=*/TypeRange{C},
-        /*traitName=*/"tuple.MapPartialEq",
-        /*methodName=*/"claims",
-        /*claim=*/a,
-        /*arguments=*/ValueRange{}
-      ).getResult(0);
-
-      // %res = tuple.cmp eq, %self, %other, %claims : !S, !O, !C
-      Value res = CmpOp::create(builder, 
-        loc,
-        CmpPredicate::eq,
-        self, other, claims
-      );
-
-      // return %res : i1
-      func::ReturnOp::create(builder, loc, res);
-    }
-
-    return impl;
+    std::pair<StringRef, CmpPredicate> methods[] = {{"eq", CmpPredicate::eq}};
+    return generateTupleCmpImpl(trait, wanted, methods, builder);
   }
 };
 
-/// TuplePartialOrdGenerator synthesizes a polymorphic `trait.impl` of
-/// PartialOrd for tuples:
-///
-///   !S = !tuple.poly<unique>
-///   !O = !tuple.poly<unique>
-///   !C = !tuple.poly<unique>
-///   trait.impl @tuple.PartialOrd for @PartialOrd[!S,!O] where [
-///     @tuple.MapPartialOrd[!S,!O,!C]
-///   ] {
-///     func.func private @ge(%self: !S, %other: !O) -> i1 { ... tuple.cmp ge ... }
-///     func.func private @gt(%self: !S, %other: !O) -> i1 { ... tuple.cmp gt ... }
-///     func.func private @le(%self: !S, %other: !O) -> i1 { ... tuple.cmp le ... }
-///     func.func private @lt(%self: !S, %other: !O) -> i1 { ... tuple.cmp lt ... }
-///   }
+/// TuplePartialOrdGenerator answers a demanded @PartialOrd over two tuples of
+/// equal arity with the impl for exactly that pair.
 struct TuplePartialOrdGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
                OpBuilder &builder) const override {
-    using namespace trait;
-
-    // only for PartialOrd
+    // only apply to the PartialOrd trait
     if (trait.getSymName() != "PartialOrd")
       return failure();
 
-    ModuleOp module = trait->getParentOfType<ModuleOp>();
-    if (!module)
-      return failure();
-
-    MLIRContext* ctx = builder.getContext();
-
-    // if the impl already exists, do nothing
-    StringRef implName = "tuple.PartialOrd";
-    for (ImplOp existing : module.getOps<ImplOp>())
-      if (existing.getSymName() == implName)
-        return failure();
-
-    // require the mapper trait to exist
-    auto mapRef = FlatSymbolRefAttr::get(ctx, "tuple.MapPartialOrd");
-    if (!SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapRef))
-      return failure();
-
-    // polymorphic tuple type parameters
-    auto S = tuple::PolyType::getUnique(ctx);
-    auto O = tuple::PolyType::getUnique(ctx);
-    auto C = tuple::PolyType::getUnique(ctx);
-
-    // our impl's self claim: !trait.claim<@PartialOrd[!S,!O]>
-    auto partialOrdRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
-    auto ourClaim = ClaimType::get(ctx, partialOrdRef, {S, O});
-
-    // one assumption on the mapper: @tuple.MapPartialOrd[!S,!O,!C]
-    auto assumption = TraitApplicationAttr::get(ctx, mapRef, {S, O, C});
-    auto assumptions = PredicateArrayAttr::get(ctx, ArrayRef<TraitApplicationAttr>{assumption});
-
-    // create the impl op
-    Location loc = builder.getUnknownLoc();
-    auto impl = ImplOp::create(builder, 
-      loc,
-      implName,
-      ourClaim.getTraitApplication(),
-      assumptions
-    );
-
-    // helper to define one of lt/le/gt/ge with tuple.cmp + mapped claims
-    auto buildCmpMethod = [&](StringRef methodName, tuple::CmpPredicate pred) {
-      OpBuilder::InsertionGuard guard(builder);
-
-      Block &body = impl.getBody().front();
-      builder.setInsertionPointToStart(&body);
-
-      auto i1 = builder.getI1Type();
-      auto fnTy = builder.getFunctionType({S,O}, i1);
-      auto fn = func::FuncOp::create(builder, loc, methodName, fnTy);
-      fn.setPrivate();
-
-      Block *entry = fn.addEntryBlock();
-      builder.setInsertionPointToStart(entry);
-      Value self = entry->getArgument(0);
-      Value other = entry->getArgument(1);
-
-      // %a = trait.assume @tuple.MapPartialOrd[!S,!O,!C]
-      Value a = AssumeOp::create(builder, loc, assumption);
-
-      // %claims = trait.method.call %a @tuple.MapPartialOrd[!S,!O,!C]::@claims() : () -> !C
-      Value claims = MethodCallOp::create(builder, 
-        loc,
-        /*results=*/TypeRange{C},
-        /*traitName=*/"tuple.MapPartialOrd",
-        /*methodName=*/"claims",
-        /*claim=*/a,
-        /*arguments=*/ValueRange{}
-      ).getResult(0);
-
-      // %res = tuple.cmp <pred>, %self, %other, %claims : !S, !O, !C
-      Value res = CmpOp::create(builder, loc, pred, self, other, claims);
-
-      // return %res : i1
-      func::ReturnOp::create(builder, loc, res);
+    std::pair<StringRef, CmpPredicate> methods[] = {
+      {"ge", CmpPredicate::ge},
+      {"gt", CmpPredicate::gt},
+      {"le", CmpPredicate::le},
+      {"lt", CmpPredicate::lt}
     };
-
-    // define all four methods
-    buildCmpMethod("ge", tuple::CmpPredicate::ge);
-    buildCmpMethod("gt", tuple::CmpPredicate::gt);
-    buildCmpMethod("le", tuple::CmpPredicate::le);
-    buildCmpMethod("lt", tuple::CmpPredicate::lt);
-
-    return impl;
+    return generateTupleCmpImpl(trait, wanted, methods, builder);
   }
 };
 

@@ -63,7 +63,7 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
       return rewriter.notifyMatchFailure(op, "not in a module");
 
     MLIRContext *ctx = op.getContext();
-    std::string name = Twine("tuple.Map" + mappedTraitName).str();
+    std::string name = getMapperTraitName(mappedTraitName);
 
     // if a trait by this name already exists, bail
     if (SymbolTable::lookupNearestSymbolFrom<trait::TraitOp>(
@@ -81,22 +81,26 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     //
     // !S = trait.poly<unique>
     // !O = trait.poly<unique>
-    // !C = trait.poly<unique>
-    // trait.trait @tuple.Map<mapped-trait-name>[!S,!O,!C] attributes {
+    // trait.trait @tuple.Map<mapped-trait-name>[!S,!O] attributes {
     //   tuple.impl_generator = "map",
     //   tuple.mapped_trait = @<mapped-trait-name>
     // } {
-    //   func.func private @claims() -> !C
+    //   trait.assoc_type @Claims
+    //   func.func private @claims()
+    //     -> !trait.proj<@tuple.Map<mapped-trait-name>[!S,!O], "Claims">
     // }
+    //
+    // The mapper is applied to the two tuple types alone: the tuple of
+    // per-element claims is what its impl binds, so an impl for a given pair
+    // of tuples determines it rather than a caller having to spell it.
 
     Type S = trait::PolyType::getUnique(ctx);
     Type O = trait::PolyType::getUnique(ctx);
-    Type C = trait::PolyType::getUnique(ctx);
 
     auto trait = trait::TraitOp::create(rewriter,
       loc,
       StringAttr::get(ctx, name),
-      /*typeParams=*/ArrayRef{S, O, C},
+      /*typeParams=*/ArrayRef{S, O},
       /*requirements=*/trait::PredicateArrayAttr::get(ctx, ArrayRef<trait::TraitApplicationAttr>{})
     );
 
@@ -104,14 +108,20 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     trait->setAttr("tuple.impl_generator", StringAttr::get(ctx, "map"));
     trait->setAttr("tuple.mapped_trait", FlatSymbolRefAttr::get(ctx, mappedTraitName));
 
-    // add @claims() to the trait body
+    // add @Claims and @claims() to the trait body
     {
       Block &body = trait.getBody().front();
       rewriter.setInsertionPointToStart(&body);
 
+      trait::AssocTypeOp::create(rewriter, loc, "Claims", TypeAttr{}, ArrayAttr{});
+
+      auto selfApp = trait::TraitApplicationAttr::get(
+        ctx, FlatSymbolRefAttr::get(ctx, name), ArrayRef{S, O});
       auto claimsTy = rewriter.getFunctionType(
         /*inputs=*/TypeRange{},
-        /*results=*/C
+        /*results=*/trait::ProjectionType::get(ctx, selfApp,
+                                               StringAttr::get(ctx, "Claims"),
+                                               /*assocTypeArgs=*/{})
       );
 
       auto claimsFn = func::FuncOp::create(rewriter,

@@ -416,8 +416,12 @@ FailureOr<std::optional<unsigned>> CmpOp::verifyArity(llvm::function_ref<InFligh
 
   if (failed(check(getLhs().getType(), "lhs"))) return failure();
   if (failed(check(getRhs().getType(), "rhs"))) return failure();
+
+  // The claims operand may still be spelled as the mapper's associated type,
+  // which contributes no arity until resolution writes the claim tuple.
   if (Value c = getClaims())
-    if (failed(check(c.getType(), "claims"))) return failure();
+    if (!isa<trait::ProjectionType>(c.getType()))
+      if (failed(check(c.getType(), "claims"))) return failure();
 
   return seen;
 }
@@ -538,23 +542,45 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto module = getOperation()->getParentOfType<ModuleOp>();
   if (!module) return emitOpError() << "not in a module";
 
-  auto formalClaimsTy = getFormalClaimsTypeForCmpOp(
-    getContext(),
-    getLhs().getType(),
-    getRhs().getType(),
-    getTraitRefAttr(),
-    getArity(),
-    errFn
-  );
-  if (failed(formalClaimsTy)) return failure();
+  // A claims operand still spelled as the mapper's associated type names the
+  // claims rather than listing them, so what it must equal is the projection
+  // this op's own operand types name. The elementwise comparison below runs
+  // once resolution writes the claim tuple in the projection's place.
+  Type formalClaimsTy;
+  if (isa<trait::ProjectionType>(claims.getType())) {
+    formalClaimsTy = getMapperClaimsProjection();
+  } else {
+    auto elementwise = getFormalClaimsTypeForCmpOp(
+      getContext(),
+      getLhs().getType(),
+      getRhs().getType(),
+      getTraitRefAttr(),
+      getArity(),
+      errFn
+    );
+    if (failed(elementwise)) return failure();
+    formalClaimsTy = *elementwise;
+  }
 
   // check that the types can unify
   // A verifier compares spellings with no module (module-free comparator):
   // no mid-verify ground-projection resolution; lowering keeps the real module.
-  if (failed(trait::buildSpecialization(*formalClaimsTy, claims.getType(), ModuleOp(), errFn)))
+  if (failed(trait::buildSpecialization(formalClaimsTy, claims.getType(), ModuleOp(), errFn)))
     return failure();
 
   return success();
+}
+
+Type CmpOp::getMapperClaimsProjection() {
+  MLIRContext *ctx = getContext();
+  auto mapperApp = trait::TraitApplicationAttr::get(
+    ctx,
+    FlatSymbolRefAttr::get(ctx, getMapperTraitName(getTraitName())),
+    ArrayRef<Type>{getLhs().getType(), getRhs().getType()}
+  );
+  return trait::ProjectionType::get(ctx, mapperApp,
+                                    StringAttr::get(ctx, "Claims"),
+                                    /*assocTypeArgs=*/{});
 }
 
 StringRef CmpOp::getTraitName() {
