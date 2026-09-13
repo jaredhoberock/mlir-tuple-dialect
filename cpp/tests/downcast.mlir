@@ -47,7 +47,8 @@ func.func @downcast_from_homogeneous_projection(
   %arg0: !trait.poly<0>,
   %arg1: !trait.claim<@HomogeneousTuple[!trait.poly<0>]>
 ) -> !tuple.poly<0> {
-  %tuple_claim = trait.project %arg1 : @HomogeneousTuple[!trait.poly<0>] to @Tuple[!trait.poly<0>]
+  %tuple_claim = trait.project %arg1[0]
+    : !trait.claim<@HomogeneousTuple[!trait.poly<0>]> -> !trait.claim<@Tuple[!trait.poly<0>]>
   %res = tuple.downcast %arg0, %tuple_claim : !trait.poly<0>, !trait.claim<@Tuple[!trait.poly<0>]> -> !tuple.poly<0>
   return %res : !tuple.poly<0>
 }
