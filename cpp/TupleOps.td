@@ -3,7 +3,6 @@
 #ifndef TUPLE_OPS_TD
 #define TUPLE_OPS_TD
 
-include "mlir/Interfaces/CallInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
