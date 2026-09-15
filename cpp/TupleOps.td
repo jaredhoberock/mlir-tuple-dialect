@@ -22,37 +22,8 @@ def ConcreteTuple : TypeConstraint<
   CPred<"::mlir::TupleType::classof($_self)">,
   "any concrete tuple type">;
 
-// The body of a higher-order tuple op is a polymorphic lambda the dialect runs
-// once per element, substituting that element's types into a fresh instance. Its
-// signature is therefore the entry block's argument types and the type it
-// yields, which is what these accessors report; a reader that asks a callable
-// what its signature binds reads the lambda's own type parameters and not the
-// enclosing function's.
-//
-// A lambda carries no argument or result attributes, so the accessors
-// `ArgAndResultAttrsOpInterface` asks for report none.
-defvar PerElementBodyCallableDeclarations = [{
-    ::mlir::Region *getCallableRegion() { return &getBody(); }
-
-    ::llvm::ArrayRef<::mlir::Type> getArgumentTypes() {
-      return getBodyFunctionType().getInputs();
-    }
-
-    ::llvm::ArrayRef<::mlir::Type> getResultTypes() {
-      return getBodyFunctionType().getResults();
-    }
-
-    ::mlir::ArrayAttr getArgAttrsAttr() { return {}; }
-    ::mlir::ArrayAttr getResAttrsAttr() { return {}; }
-    void setArgAttrsAttr(::mlir::ArrayAttr) {}
-    void setResAttrsAttr(::mlir::ArrayAttr) {}
-    ::mlir::Attribute removeArgAttrsAttr() { return {}; }
-    ::mlir::Attribute removeResAttrsAttr() { return {}; }
-}];
-
 def AllOp : TupleOp<"all", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
@@ -71,7 +42,7 @@ def AllOp : TupleOp<"all", [
   let assemblyFormat = "$input attr-dict `:` type($input) $body";
   let hasVerifier = 1;
 
-  let extraClassDeclaration = PerElementBodyCallableDeclarations # [{
+  let extraClassDeclaration = [{
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
@@ -228,7 +199,6 @@ def DropLastOp : TupleOp<"drop_last", [
 
 def ExclusiveScanOp : TupleOp<"exclusive_scan", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
@@ -251,7 +221,7 @@ def ExclusiveScanOp : TupleOp<"exclusive_scan", [
   let results = (outs TupleLike:$result);
   let regions = (region SizedRegion<1>:$body);
 
-  let extraClassDeclaration = PerElementBodyCallableDeclarations # [{
+  let extraClassDeclaration = [{
     FailureOr<TupleType> getInputTupleTypeWithKnownArity(function_ref<InFlightDiagnostic()> errFn = nullptr) {
       if (auto tt = dyn_cast<TupleType>(getInput().getType()))
         return tt;
@@ -318,7 +288,6 @@ def FlattenOp : TupleOp<"flatten", [
 // XXX TODO tuple.flat_map should probably be variadic like tuple.map
 def FlatMapOp : TupleOp<"flat_map", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
@@ -338,7 +307,7 @@ def FlatMapOp : TupleOp<"flat_map", [
   let assemblyFormat = "$input attr-dict `:` type($input) `->` type($result) $body";
   let hasVerifier = 1;
 
-  let extraClassDeclaration = PerElementBodyCallableDeclarations # [{
+  let extraClassDeclaration = [{
     YieldOp bodyYield();
 
     FunctionType getBodyFunctionType();
@@ -405,7 +374,6 @@ def DowncastOp : TupleOp<"downcast", [
 
 def FoldlOp : TupleOp<"foldl", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
@@ -421,7 +389,7 @@ def FoldlOp : TupleOp<"foldl", [
   let results = (outs AnyType:$result);
   let regions = (region SizedRegion<1>:$body);
 
-  let extraClassDeclaration = PerElementBodyCallableDeclarations # [{
+  let extraClassDeclaration = [{
     FailureOr<std::optional<unsigned>> verifyArity(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
 
     std::optional<unsigned> getArity() {
@@ -568,7 +536,6 @@ def ConstantOp : TupleOp<"constant", [
 
 def MapOp : TupleOp<"map", [
   AutomaticAllocationScope,
-  CallableOpInterface,
   SingleBlock,
   DeclareOpInterfaceMethods<SymbolUserOpInterface>,
   OpAsmOpInterface
@@ -584,7 +551,7 @@ def MapOp : TupleOp<"map", [
   let results = (outs AnyType:$result);
   let regions = (region SizedRegion<1>:$body);
 
-  let extraClassDeclaration = PerElementBodyCallableDeclarations # [{
+  let extraClassDeclaration = [{
     FailureOr<std::optional<unsigned>> verifyArity(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
 
     std::optional<unsigned> getArity() {
