@@ -26,9 +26,8 @@ def ConcreteTuple : TypeConstraint<
 // once per element, substituting that element's types into a fresh instance. Its
 // signature is therefore the entry block's argument types and the type it
 // yields, which is what these accessors report; a reader that asks a callable
-// what its signature binds -- the trait dialect's well-scopedness judgment asks
-// exactly that -- reads the lambda's own type parameters and not the enclosing
-// function's.
+// what its signature binds reads the lambda's own type parameters and not the
+// enclosing function's.
 //
 // A lambda carries no argument or result attributes, so the accessors
 // `ArgAndResultAttrsOpInterface` asks for report none.
