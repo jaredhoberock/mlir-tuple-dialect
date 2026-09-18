@@ -214,7 +214,7 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
     if (isa<BaseMemRefType>(type))
       return std::nullopt;
     // A container another dialect owns is that dialect's to rebuild: putting an
-    // LLVM struct where a `!coop.tensor`'s verifier expects a coordinate shape
+    // LLVM struct where an `!array.array`'s verifier expects a coordinate shape
     // would abort the conversion rather than decline it. This sweep rebuilds only
     // a builtin container that carries a tuple; a foreign container is left to the
     // dialect whose converter owns it.
