@@ -11,11 +11,8 @@ include "mlir/IR/OpBase.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "TraitTypes.td"
 include "Tuple.td"
+include "TupleConstraints.td"
 include "TupleEnums.td"
-
-def TupleLike : TypeConstraint<
-  CPred<"::mlir::tuple::isTupleLike($_self)">,
-  "either tuple<...> or !tuple.poly">;
 
 def ConcreteTuple : TypeConstraint<
   CPred<"::mlir::TupleType::classof($_self)">,
