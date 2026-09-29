@@ -222,7 +222,7 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
 ///     where [@Eq[i32, i64]] {
 ///       trait.assoc_type @Claims = tuple<!trait.claim<@Eq[i32,i64]>>
 ///       func.func private @claims() -> tuple<!trait.claim<@Eq[i32,i64]>> {
-///         %c0 = trait.assume @Eq[i32,i64]
+///         %c0 = trait.assume 0 : !trait.claim<@Eq[i32,i64]>
 ///         %res = tuple.make(%c0)
 ///         return %res
 ///       }
@@ -291,8 +291,8 @@ struct MapGenerator : trait::ImplGenerator {
 
     // the impl's body binds @Claims and defines @claims():
     // - return type: tupleOfClaims
-    // - body: %c0 = trait.assume @MappedTrait[L0,R0]
-    //         %c1 = trait.assume @MappedTrait[L1,R1]
+    // - body: %c0 = trait.assume 0 : !trait.claim<@MappedTrait[L0,R0]>
+    //         %c1 = trait.assume 1 : !trait.claim<@MappedTrait[L1,R1]>
     //         ...
     //         %res = tuple.make(%c0, %c1, ...)
     //         return %res
@@ -313,10 +313,11 @@ struct MapGenerator : trait::ImplGenerator {
       // build function body
       detached.setInsertionPointToStart(claimsFunc.addEntryBlock());
 
-      // emit trait.assume for each element position
-      SmallVector<Value> elements = llvm::map_to_vector(claims, [&](ClaimType c) {
-        return Value(AssumeOp::create(detached, loc, c));
-      });
+      // each element position's claim is the impl's assumption at that
+      // position
+      SmallVector<Value> elements;
+      for (auto [position, claim] : llvm::enumerate(claims))
+        elements.push_back(AssumeOp::create(detached, loc, claim, position));
 
       // tuple.make of all claims, and return it
       auto result = MakeOp::create(detached, loc, elements);
@@ -337,7 +338,7 @@ struct MapGenerator : trait::ImplGenerator {
 ///   trait.impl @... for @PartialEq[tuple<i32>, tuple<i32>]
 ///     where [@tuple.MapPartialEq[tuple<i32>, tuple<i32>]] {
 ///     func.func private @eq(%self: tuple<i32>, %other: tuple<i32>) -> i1 {
-///       %a = trait.assume @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
+///       %a = trait.assume 0 : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>
 ///       %claims = trait.method.call %a
 ///         @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
 ///         : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
@@ -408,8 +409,9 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
     Value self = entry->getArgument(0);
     Value other = entry->getArgument(1);
 
-    // %a = trait.assume @tuple.Map<Trait>[lhs,rhs]
-    Value a = AssumeOp::create(detached, loc, assumption);
+    // %a = trait.assume 0 : !trait.claim<@tuple.Map<Trait>[lhs,rhs]>
+    Value a = AssumeOp::create(detached, loc, ClaimType::get(ctx, assumption),
+                               /*position=*/0);
 
     // %claims = trait.method.call %a @tuple.Map<Trait>[lhs,rhs]::@claims() : () -> claimsTy
     Value claims = MethodCallOp::create(detached,

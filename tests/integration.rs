@@ -28,7 +28,7 @@ fn append_partial_eq_trait<'c>(
       func.func private @eq(!trait.poly<0>, !trait.poly<1>) -> i1
     
       func.func private @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
-        %a = trait.assume @PartialEq[!trait.poly<0>,!trait.poly<1>]
+        %a = trait.assume self : !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>
         %equal = trait.method.call %a @PartialEq[!trait.poly<0>,!trait.poly<1>]::@eq(%self, %other) : (!trait.poly<0>, !trait.poly<1>) -> i1
         %true = arith.constant 1 : i1
         %result = arith.xori %equal, %true : i1

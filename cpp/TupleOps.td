@@ -355,7 +355,7 @@ def DowncastOp : TupleOp<"downcast", [
 
     Example:
 ```mlir
-    %claim = trait.assume @Tuple[!T]
+    // %claim: !trait.claim<@Tuple[!T]>
     %tuple = tuple.downcast %value, %claim
       : !T, !trait.claim<@Tuple[!T]> -> !tuple.poly<!T>
 ```

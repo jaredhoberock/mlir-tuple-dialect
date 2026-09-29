@@ -49,7 +49,7 @@ trait.impl private @tuple.PartialEq for @PartialEq[!TS,!TO] where [
 ] {
   func.func @eq(%self: !TS, %other: !TO) -> i1 {
     // first get a tuple of elementwise @PartialEq claims
-    %a = trait.assume @tuple.MapPartialEq[!TS,!TO]
+    %a = trait.assume 0 : !trait.claim<@tuple.MapPartialEq[!TS,!TO]>
     %claims = trait.method.call %a @tuple.MapPartialEq[!TS,!TO]::@claims()
       : () -> !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
 
