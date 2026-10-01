@@ -25,14 +25,14 @@ fn append_partial_eq_trait<'c>(
 ) {
     let source = r#"
     trait.trait private @PartialEq[!trait.poly<0>,!trait.poly<1>] {
-      func.func private @eq(!trait.poly<0>, !trait.poly<1>) -> i1
+      trait.method @eq(!trait.poly<0>, !trait.poly<1>) -> i1
     
-      func.func private @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
+      trait.method @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
         %a = trait.assume self : !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>
         %equal = trait.method.call %a @PartialEq[!trait.poly<0>,!trait.poly<1>]::@eq(%self, %other) : (!trait.poly<0>, !trait.poly<1>) -> i1
         %true = arith.constant 1 : i1
         %result = arith.xori %equal, %true : i1
-        return %result : i1
+        trait.return %result : i1
       }
     }
     "#;
@@ -54,10 +54,10 @@ fn append_partial_ord_trait<'c>(
 ) {
     let source = r#"
     trait.trait private @PartialOrd[!trait.poly<2>, !trait.poly<3>] {
-      func.func private @lt(!trait.poly<2>, !trait.poly<3>) -> i1
-      func.func private @le(!trait.poly<2>, !trait.poly<3>) -> i1
-      func.func private @gt(!trait.poly<2>, !trait.poly<3>) -> i1
-      func.func private @ge(!trait.poly<2>, !trait.poly<3>) -> i1
+      trait.method @lt(!trait.poly<2>, !trait.poly<3>) -> i1
+      trait.method @le(!trait.poly<2>, !trait.poly<3>) -> i1
+      trait.method @gt(!trait.poly<2>, !trait.poly<3>) -> i1
+      trait.method @ge(!trait.poly<2>, !trait.poly<3>) -> i1
     }
     "#;
 
@@ -78,9 +78,9 @@ fn append_partial_eq_i32_impl<'c>(
 ) {
     let source = r#"
     trait.impl private for @PartialEq[i32,i32]{
-      func.func private @eq(%self: i32, %other: i32) -> i1 {
+      trait.method @eq(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi eq, %self, %other : i32
-        return %res : i1
+        trait.return %res : i1
       }
     }
     "#;
@@ -102,21 +102,21 @@ fn append_partial_ord_i32_impl<'c>(
 ) {
     let source = r#"
     trait.impl private for @PartialOrd[i32,i32] {
-      func.func private @lt(%self: i32, %other: i32) -> i1 {
+      trait.method @lt(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi slt, %self, %other : i32
-        return %res : i1
+        trait.return %res : i1
       }
-      func.func private @le(%self: i32, %other: i32) -> i1 {
+      trait.method @le(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi sle, %self, %other : i32
-        return %res : i1
+        trait.return %res : i1
       }
-      func.func private @gt(%self: i32, %other: i32) -> i1 {
+      trait.method @gt(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi sgt, %self, %other : i32
-        return %res : i1
+        trait.return %res : i1
       }
-      func.func private @ge(%self: i32, %other: i32) -> i1 {
+      trait.method @ge(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi sge, %self, %other : i32
-        return %res : i1
+        trait.return %res : i1
       }
     }
     "#;

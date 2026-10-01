@@ -12,20 +12,20 @@
 !S = !trait.poly<0>
 !O = !trait.poly<1>
 trait.trait private @PartialEq[!S,!O] {
-  func.func private @eq(!S,!O) -> i1
+  trait.method @eq(!S,!O) -> i1
 }
 
 trait.impl private for @PartialEq[i32,i32] {
-  func.func @eq(%self: i32, %other: i32) -> i1 {
+  trait.method @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
-    return %res : i1
+    trait.return %res : i1
   }
 }
 
 trait.impl private for @PartialEq[f64,f64] {
-  func.func @eq(%self: f64, %other: f64) -> i1 {
+  trait.method @eq(%self: f64, %other: f64) -> i1 {
     %res = arith.cmpf oeq, %self, %other : f64
-    return %res : i1
+    trait.return %res : i1
   }
 }
 
@@ -36,7 +36,7 @@ trait.trait private @tuple.MapPartialEq[!MS,!MO] attributes {
   tuple.mapped_trait = @PartialEq
 } {
   trait.assoc_type @Claims
-  func.func private @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
+  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
 }
 
 func.func @claims_of_a_singleton()
@@ -70,13 +70,13 @@ func.func @claims_of_a_pair()
 !S = !trait.poly<0>
 !O = !trait.poly<1>
 trait.trait private @PartialEq[!S,!O] {
-  func.func private @eq(!S,!O) -> i1
+  trait.method @eq(!S,!O) -> i1
 }
 
 trait.impl private for @PartialEq[i32,i32] {
-  func.func @eq(%self: i32, %other: i32) -> i1 {
+  trait.method @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
-    return %res : i1
+    trait.return %res : i1
   }
 }
 
@@ -87,7 +87,7 @@ trait.trait private @tuple.MapPartialEq[!MS,!MO] attributes {
   tuple.mapped_trait = @PartialEq
 } {
   trait.assoc_type @Claims
-  func.func private @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
+  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
 }
 
 func.func @claims_of_tuples_of_unequal_arity()

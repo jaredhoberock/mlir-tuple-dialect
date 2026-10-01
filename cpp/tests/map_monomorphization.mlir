@@ -9,18 +9,18 @@
 
 !S = !trait.poly<0>
 trait.trait private @Id[!S] {
-  func.func nested @id(%self: !S) -> !S
+  trait.method @id(%self: !S) -> !S
 }
 
 trait.impl private for @Id[i32] {
-  func.func nested @id(%self: i32) -> i32 {
-    return %self : i32
+  trait.method @id(%self: i32) -> i32 {
+    trait.return %self : i32
   }
 }
 
 trait.impl private for @Id[f32] {
-  func.func nested @id(%self: f32) -> f32 {
-    return %self : f32
+  trait.method @id(%self: f32) -> f32 {
+    trait.return %self : f32
   }
 }
 

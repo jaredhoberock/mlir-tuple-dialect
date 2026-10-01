@@ -86,7 +86,7 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     //   tuple.mapped_trait = @<mapped-trait-name>
     // } {
     //   trait.assoc_type @Claims
-    //   func.func private @claims()
+    //   trait.method @claims()
     //     -> !trait.proj<@tuple.Map<mapped-trait-name>[!S,!O], "Claims">
     // }
     //
@@ -126,12 +126,11 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
                                                /*assocTypeArgs=*/{})
       );
 
-      auto claimsFn = func::FuncOp::create(rewriter,
+      trait::MethodOp::create(rewriter,
         loc,
         "claims",
         claimsTy
       );
-      claimsFn.setPrivate();
     }
 
     return success();

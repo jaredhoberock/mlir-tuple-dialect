@@ -209,7 +209,7 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
 ///     tuple.mapped_trait   = @Eq
 ///   } {
 ///     trait.assoc_type @Claims
-///     func.func private @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
+///     trait.method @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///   }
 ///
 /// For a wanted claim like:
@@ -221,10 +221,10 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
 ///   trait.impl @... for @tuple.MapEq[tuple<i32>, tuple<i64>]
 ///     where [@Eq[i32, i64]] {
 ///       trait.assoc_type @Claims = tuple<!trait.claim<@Eq[i32,i64]>>
-///       func.func private @claims() -> tuple<!trait.claim<@Eq[i32,i64]>> {
+///       trait.method @claims() -> tuple<!trait.claim<@Eq[i32,i64]>> {
 ///         %c0 = trait.assume 0 : !trait.claim<@Eq[i32,i64]>
 ///         %res = tuple.make(%c0)
-///         return %res
+///         trait.return %res
 ///       }
 ///     }
 ///
@@ -295,20 +295,19 @@ struct MapGenerator : trait::ImplGenerator {
     //         %c1 = trait.assume 1 : !trait.claim<@MappedTrait[L1,R1]>
     //         ...
     //         %res = tuple.make(%c0, %c1, ...)
-    //         return %res
+    //         trait.return %res
     {
       detached.setInsertionPointToStart(&impl.getBody().front());
 
       AssocTypeOp::create(detached, loc, "Claims",
                           TypeAttr::get(tupleOfClaims), ArrayAttr{});
 
-      // func.func private @claims() -> tupleOfClaims
-      auto claimsFunc = func::FuncOp::create(detached,
+      // trait.method @claims() -> tupleOfClaims
+      auto claimsFunc = trait::MethodOp::create(detached,
         loc,
         "claims",
         FunctionType::get(ctx, {}, tupleOfClaims)
       );
-      claimsFunc.setPrivate();
 
       // build function body
       detached.setInsertionPointToStart(claimsFunc.addEntryBlock());
@@ -321,7 +320,7 @@ struct MapGenerator : trait::ImplGenerator {
 
       // tuple.make of all claims, and return it
       auto result = MakeOp::create(detached, loc, elements);
-      func::ReturnOp::create(detached, loc, result.getResult());
+      trait::ReturnOp::create(detached, loc, result.getResult());
     }
 
     builder.insert(impl);
@@ -337,13 +336,13 @@ struct MapGenerator : trait::ImplGenerator {
 ///
 ///   trait.impl @... for @PartialEq[tuple<i32>, tuple<i32>]
 ///     where [@tuple.MapPartialEq[tuple<i32>, tuple<i32>]] {
-///     func.func private @eq(%self: tuple<i32>, %other: tuple<i32>) -> i1 {
+///     trait.method @eq(%self: tuple<i32>, %other: tuple<i32>) -> i1 {
 ///       %a = trait.assume 0 : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>
 ///       %claims = trait.method.call %a
 ///         @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
 ///         : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 ///       %res = tuple.cmp eq, %self, %other, %claims
-///       return %res : i1
+///       trait.return %res : i1
 ///     }
 ///   }
 static FailureOr<trait::ImplOp> generateTupleCmpImpl(
@@ -401,8 +400,7 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
     detached.setInsertionPointToEnd(&impl.getBody().front());
 
     auto fnTy = detached.getFunctionType({lhs, rhs}, detached.getI1Type());
-    auto fn = func::FuncOp::create(detached, loc, methodName, fnTy);
-    fn.setPrivate();
+    auto fn = trait::MethodOp::create(detached, loc, methodName, fnTy);
 
     Block *entry = fn.addEntryBlock();
     detached.setInsertionPointToStart(entry);
@@ -426,8 +424,8 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
     // %res = tuple.cmp <predicate>, %self, %other, %claims
     Value res = CmpOp::create(detached, loc, predicate, self, other, claims);
 
-    // return %res : i1
-    func::ReturnOp::create(detached, loc, res);
+    // trait.return %res : i1
+    trait::ReturnOp::create(detached, loc, res);
   }
 
   builder.insert(impl);
