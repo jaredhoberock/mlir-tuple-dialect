@@ -9,11 +9,11 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq[!S,!O] {
+trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
   trait.method @eq(!S,!O) -> i1
 }
 
-trait.impl private for @PartialEq[i32,i32] {
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) {
   trait.method @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
     trait.return %res : i1
@@ -22,7 +22,7 @@ trait.impl private for @PartialEq[i32,i32] {
 
 !MS = !trait.poly<2>
 !MO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq[!MS,!MO] attributes {
+trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!MS, !MO]>) attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
@@ -47,5 +47,5 @@ func.func @claims_there()
 }
 
 // both demands are served by the one impl of that application
-// CHECK: trait.impl private for @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
-// CHECK-NOT: trait.impl private for @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
+// CHECK: trait.impl private @tuple.MapPartialEq_impl_{{h[0-9a-f]+}}(%self: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>
+// CHECK-NOT: trait.impl private @tuple.MapPartialEq_impl_{{h[0-9a-f]+}}(%self: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>

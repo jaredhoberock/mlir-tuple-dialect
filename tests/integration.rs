@@ -24,12 +24,11 @@ fn append_partial_eq_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialEq[!trait.poly<0>,!trait.poly<1>] {
+    trait.trait private @PartialEq(%claim: !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>) {
       trait.method @eq(!trait.poly<0>, !trait.poly<1>) -> i1
     
       trait.method @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
-        %a = trait.assume self : !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>
-        %equal = trait.method.call %a @PartialEq[!trait.poly<0>,!trait.poly<1>]::@eq(%self, %other) : (!trait.poly<0>, !trait.poly<1>) -> i1
+        %equal = trait.method.call %claim @PartialEq[!trait.poly<0>,!trait.poly<1>]::@eq(%self, %other) : (!trait.poly<0>, !trait.poly<1>) -> i1
         %true = arith.constant 1 : i1
         %result = arith.xori %equal, %true : i1
         trait.return %result : i1
@@ -53,7 +52,7 @@ fn append_partial_ord_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialOrd[!trait.poly<2>, !trait.poly<3>] {
+    trait.trait private @PartialOrd(%claim: !trait.claim<@PartialOrd[!trait.poly<2>, !trait.poly<3>]>) {
       trait.method @lt(!trait.poly<2>, !trait.poly<3>) -> i1
       trait.method @le(!trait.poly<2>, !trait.poly<3>) -> i1
       trait.method @gt(!trait.poly<2>, !trait.poly<3>) -> i1
@@ -77,7 +76,7 @@ fn append_partial_eq_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl private for @PartialEq[i32,i32]{
+    trait.impl private @PartialEq_i32(%claim: !trait.claim<@PartialEq[i32,i32]>) {
       trait.method @eq(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi eq, %self, %other : i32
         trait.return %res : i1
@@ -101,7 +100,7 @@ fn append_partial_ord_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl private for @PartialOrd[i32,i32] {
+    trait.impl private @PartialOrd_i32(%claim: !trait.claim<@PartialOrd[i32,i32]>) {
       trait.method @lt(%self: i32, %other: i32) -> i1 {
         %res = arith.cmpi slt, %self, %other : i32
         trait.return %res : i1

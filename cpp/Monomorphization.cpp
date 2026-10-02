@@ -81,7 +81,8 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
     //
     // !S = trait.poly<0>
     // !O = trait.poly<1>
-    // trait.trait @tuple.Map<mapped-trait-name>[!S,!O] attributes {
+    // trait.trait @tuple.Map<mapped-trait-name>(
+    //     %self: !trait.claim<@tuple.Map<mapped-trait-name>[!S,!O]>) attributes {
     //   tuple.impl_generator = "map",
     //   tuple.mapped_trait = @<mapped-trait-name>
     // } {
@@ -101,9 +102,9 @@ struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
 
     auto trait = trait::TraitOp::create(rewriter,
       loc,
-      StringAttr::get(ctx, name),
+      name,
       /*typeParams=*/ArrayRef{S, O},
-      /*requirements=*/trait::PredicateArrayAttr::get(ctx, ArrayRef<trait::TraitApplicationAttr>{})
+      /*requirements=*/ArrayRef<Type>{}
     );
 
     // attach attributes for the map generator

@@ -23,19 +23,18 @@ func.func @cmp_ne_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq[!S,!O] {
+trait.trait private @PartialEq(%self_claim: !trait.claim<@PartialEq[!S, !O]>) {
   trait.method @eq(!S, !O) -> i1
 
   trait.method @ne(%self: !S, %other: !O) -> i1 {
-    %a = trait.assume self : !trait.claim<@PartialEq[!S,!O]>
-    %equal = trait.method.call %a @PartialEq[!S,!O]::@eq(%self, %other) : (!S, !O) -> i1
+    %equal = trait.method.call %self_claim @PartialEq[!S,!O]::@eq(%self, %other) : (!S, !O) -> i1
     %true = arith.constant 1 : i1
     %result = arith.xori %equal, %true : i1
     trait.return %result : i1
   }
 }
 
-trait.impl private for @PartialEq[i32,i32] {
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) {
   trait.method @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
     trait.return %res : i1
@@ -64,7 +63,7 @@ func.func @cmp_ne_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl private for @PartialEq[i64,i64] {
+trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]>) {
   trait.method @eq(%self: i64, %other: i64) -> i1 {
     %res = arith.cmpi eq, %self, %other : i64
     trait.return %res : i1

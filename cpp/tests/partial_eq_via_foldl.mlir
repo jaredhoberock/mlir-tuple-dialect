@@ -10,18 +10,18 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq[!S,!O] {
+trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
   trait.method @eq(!S,!O) -> i1
 }
 
-trait.impl private for @PartialEq[i32,i32] {
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) {
   trait.method @eq(%self: i32, %other: i32) -> i1 {
     %res = arith.cmpi eq, %self, %other : i32
     trait.return %res : i1
   }
 }
 
-trait.impl private for @PartialEq[f64,f64] {
+trait.impl private @PartialEq_f64(%self_claim: !trait.claim<@PartialEq[f64, f64]>) {
   trait.method @eq(%self: f64, %other: f64) -> i1 {
     %res = arith.cmpf oeq, %self, %other : f64
     trait.return %res : i1
@@ -32,7 +32,7 @@ trait.impl private for @PartialEq[f64,f64] {
 // binds the tuple of their claims as its @Claims associated type
 !MapPartialEqS = !trait.poly<2>
 !MapPartialEqO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO] attributes {
+trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!MapPartialEqS, !MapPartialEqO]>) attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
@@ -44,13 +44,10 @@ trait.trait private @tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO] attribute
 // this is the polymorphic tuple impl of PartialEq
 !TS = !tuple.poly<5>
 !TO = !tuple.poly<6>
-trait.impl private @tuple.PartialEq for @PartialEq[!TS,!TO] where [
-  @tuple.MapPartialEq[!TS,!TO]
-] {
+trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!TS, !TO]>, %mapped: !trait.claim<@tuple.MapPartialEq[!TS,!TO]>) {
   trait.method @eq(%self: !TS, %other: !TO) -> i1 {
     // first get a tuple of elementwise @PartialEq claims
-    %a = trait.assume 0 : !trait.claim<@tuple.MapPartialEq[!TS,!TO]>
-    %claims = trait.method.call %a @tuple.MapPartialEq[!TS,!TO]::@claims()
+    %claims = trait.method.call %mapped @tuple.MapPartialEq[!TS,!TO]::@claims()
       : () -> !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
 
     // fold @PartialEq::@eq over the tuples

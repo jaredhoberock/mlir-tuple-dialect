@@ -8,17 +8,17 @@
 // instantiation of a distinct callee per element type (i32 vs f32).
 
 !S = !trait.poly<0>
-trait.trait private @Id[!S] {
+trait.trait private @Id(%self_claim: !trait.claim<@Id[!S]>) {
   trait.method @id(%self: !S) -> !S
 }
 
-trait.impl private for @Id[i32] {
+trait.impl private @Id_i32(%self_claim: !trait.claim<@Id[i32]>) {
   trait.method @id(%self: i32) -> i32 {
     trait.return %self : i32
   }
 }
 
-trait.impl private for @Id[f32] {
+trait.impl private @Id_f32(%self_claim: !trait.claim<@Id[f32]>) {
   trait.method @id(%self: f32) -> f32 {
     trait.return %self : f32
   }

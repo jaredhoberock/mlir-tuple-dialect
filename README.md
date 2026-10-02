@@ -36,14 +36,16 @@ The snippet below shows a call to `tuple.cmp eq` on a pair of `i64`s.
 During impl resolution, the tuple dialect generates the necessary impls of `PartialEq` for tuples, relying on an elementwise impl of `PartialEq[i64,i64]`.
 
 ```mlir
-trait.trait @PartialEq[!S,!O] {
-  func.func private @eq(!S, !O) -> i1
+!S = !trait.poly<0>
+!O = !trait.poly<1>
+trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
+  trait.method @eq(!S, !O) -> i1
 }
 
-trait.impl for @PartialEq[i64,i64] {
-  func.func private @eq(%a: i64, %b: i64) -> i1 {
+trait.impl private @PartialEq_i64(%self: !trait.claim<@PartialEq[i64, i64]>) {
+  trait.method @eq(%a: i64, %b: i64) -> i1 {
     %res = arith.cmpi eq, %a, %b : i64
-    return %res : i1
+    trait.return %res : i1
   }
 }
 
