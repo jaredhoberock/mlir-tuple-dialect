@@ -142,16 +142,14 @@ struct CatOpLowering : OpRewritePattern<CatOp> {
   }
 };
 
-// rewrites a tuple.cmp with eq/ne, lhs, rhs, and claims operands
-// into a tuple.foldl op
-struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
+// rewrites a tuple.cmp with eq/ne, lhs, rhs, and claims operands into a
+// tuple.foldl op calling the eq or ne method of the trait the op names at each
+// element position
+struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(CmpOp op,
                                 PatternRewriter& rewriter) const override {
-    // only handle a PartialEq method
-    if (op.getTraitName() != "PartialEq")
-      return rewriter.notifyMatchFailure(op, "not PartialEq");
     StringRef method = op.getMethodName();
     if (method != "eq" && method != "ne")
       return rewriter.notifyMatchFailure(op, "only eq/ne supported");
@@ -188,8 +186,8 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
 
     // build the body:
     //
-    // ^bb0(%acc: i1, %li: !Li, %ri: !Ri, %ci: !trait.claim<@PartialEq[!Li,!Ri]>):
-    //   %call_res = trait.method.call %ci @PartialEq[!Li,!Ri]::method(%li, %ri) : ...
+    // ^bb0(%acc: i1, %li: !Li, %ri: !Ri, %ci: !trait.claim<@Trait[!Li,!Ri]>):
+    //   %call_res = trait.method.call %ci @Trait[!Li,!Ri]::method(%li, %ri) : ...
     //   %resi = AND or OR with %acc
     //   yield %resi : i1
     {
@@ -215,9 +213,9 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
 
       // call the method requested by the tuple.cmp
       Value callRes = trait::MethodCallOp::create(rewriter,
-        loc, i1Ty,
-        op.getTraitName(),
-        method,
+        loc, TypeRange{i1Ty},
+        op.getTraitRefAttr(),
+        FlatSymbolRefAttr::get(ctx, method),
         ci,
         ValueRange{li,ri}
       ).getResult(0);
@@ -235,17 +233,14 @@ struct CmpOpPartialEqLowering : OpRewritePattern<CmpOp> {
   }
 };
 
-// rewrites a tuple.cmp with le/lt/ge/gt, lhs, rhs, and claims operands
-// into a tuple.foldl op
-struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
+// rewrites a tuple.cmp with le/lt/ge/gt, lhs, rhs, and claims operands into a
+// tuple.foldl op calling the lt and gt methods of the trait the op names at
+// each element position
+struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(CmpOp op,
                                 PatternRewriter& rewriter) const override {
-    // only handle a PartialOrd method
-    if (op.getTraitName() != "PartialOrd")
-      return rewriter.notifyMatchFailure(op, "not PartialOrd");
-
     // only handle lt/le/gt/ge
     const auto pred = op.getPredicate();
     const bool isLtLe   = (pred == CmpPredicate::lt || pred == CmpPredicate::le);
@@ -289,15 +284,15 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
     // Body:
     //
     // ^bb0(%acc: tuple<i1,i1>, %li: !Li, %ri: !Ri,
-    //      %ci: !trait.claim<@PartialOrd[!Li,!Ri]>):
+    //      %ci: !trait.claim<@Trait[!Li,!Ri]>):
     //   // Unpack accumulator
     //   %res     = tuple.get %acc, 0 : tuple<i1,i1> -> i1
     //   %all_eq  = tuple.get %acc, 1 : tuple<i1,i1> -> i1
     //
     //   // Per-element calls (exactly two)
-    //   %lt_i = trait.method.call %ci @PartialOrd[!Li,!Ri]::@lt(%li, %ri)
+    //   %lt_i = trait.method.call %ci @Trait[!Li,!Ri]::@lt(%li, %ri)
     //           : (!Li, !Ri) -> i1
-    //   %gt_i = trait.method.call %ci @PartialOrd[!Li,!Ri]::@gt(%li, %ri)
+    //   %gt_i = trait.method.call %ci @Trait[!Li,!Ri]::@gt(%li, %ri)
     //           : (!Li, !Ri) -> i1
     //
     //   // Equality at this position
@@ -342,9 +337,11 @@ struct CmpOpPartialOrdLowering : OpRewritePattern<CmpOp> {
       Value allEq = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(1));
 
       Value lt_i = trait::MethodCallOp::create(rewriter,
-        loc, i1, "PartialOrd", "lt", ci, ValueRange{li, ri}).getResult(0);
+        loc, TypeRange{i1}, op.getTraitRefAttr(),
+        FlatSymbolRefAttr::get(ctx, "lt"), ci, ValueRange{li, ri}).getResult(0);
       Value gt_i = trait::MethodCallOp::create(rewriter,
-        loc, i1, "PartialOrd", "gt", ci, ValueRange{li, ri}).getResult(0);
+        loc, TypeRange{i1}, op.getTraitRefAttr(),
+        FlatSymbolRefAttr::get(ctx, "gt"), ci, ValueRange{li, ri}).getResult(0);
 
       Value either = arith::OrIOp::create(rewriter, loc, lt_i, gt_i);
       Value eq_i   = arith::XOrIOp::create(rewriter, loc, either, cTrue);
@@ -740,8 +737,8 @@ void populateTupleElaborationPatterns(RewritePatternSet& patterns) {
     AllOpLowering,
     AppendOpLowering,
     CatOpLowering,
-    CmpOpPartialEqLowering,
-    CmpOpPartialOrdLowering,
+    CmpOpEqualityLowering,
+    CmpOpOrderingLowering,
     DropLastOpLowering,
     ExclusiveScanOpLowering,
     FlatMapOpLowering,

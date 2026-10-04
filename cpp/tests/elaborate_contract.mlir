@@ -76,7 +76,7 @@ func.func @contract_all_ops(%t: tuple<i32,i32>, %u: tuple<i32,i32>,
   %ea = tuple.make : tuple<>
   %eb = tuple.make : tuple<>
   %eclaims = tuple.make : tuple<>
-  %eq = tuple.cmp eq, %ea, %eb, %eclaims : tuple<>, tuple<>, tuple<>
+  %eq = tuple.cmp eq @PartialEq, %ea, %eb, %eclaims : tuple<>, tuple<>, tuple<>
 
   // all
   %bools = tuple.make(%eq : i1) : tuple<i1>

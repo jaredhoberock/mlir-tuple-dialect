@@ -13,10 +13,6 @@
 
 namespace mlir::tuple {
 
-static bool isTupleStructureTrait(StringRef traitName) {
-  return traitName == "Tuple";
-}
-
 /// The type arguments carrying a per-element body's declaration to the types
 /// standing opposite it.
 ///
@@ -86,7 +82,7 @@ static FailureOr<trait::SpecializationMap> matchBodyToIteration(
 }
 
 /// Verifies that a downcast from `!trait.poly` to `!tuple.poly` is justified by
-/// a tuple-structure claim.
+/// a tuple-structure claim, whose trait `DowncastOp::verifySymbolUses` checks.
 ///
 /// A tuple structural claim is a proof that the value's polymorphic type
 /// variable represents a tuple. The downcast is valid exactly when the result
@@ -97,12 +93,6 @@ static LogicalResult verifyTupleStructuralDowncast(
     function_ref<InFlightDiagnostic()> errFn) {
   auto claimType = cast<trait::ClaimType>(claimTy);
   auto traitApp = claimType.getTraitApplication();
-  StringRef traitName = traitApp.getTraitName().getValue();
-  if (!isTupleStructureTrait(traitName)) {
-    errFn() << "claim must be for a tuple-structure trait";
-    return failure();
-  }
-
   auto typeArgs = traitApp.getTypeArgs();
   if (typeArgs.size() != 1) {
     errFn() << "tuple-structure claim must have exactly one type argument";
@@ -254,6 +244,23 @@ LogicalResult DowncastOp::verify() {
   return verifyTupleStructuralDowncast(
       getOperation(), getValue().getType(), getClaim().getType(),
       getResult().getType(), [&]() { return emitOpError(); });
+}
+
+/// The claim's trait is the tuple-structure trait: the one tagged
+/// `tuple.impl_generator = "tuple"`, whatever it is named.
+LogicalResult DowncastOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
+  auto app = cast<trait::ClaimType>(getClaim().getType()).getTraitApplication();
+  auto module = getOperation()->getParentOfType<ModuleOp>();
+  if (!module)
+    return emitOpError() << "not in a module";
+  auto trait = symbolTable.lookupNearestSymbolFrom<trait::TraitOp>(
+      module, app.getTraitName());
+  if (!trait)
+    return emitOpError() << "couldn't find trait.trait " << app.getTraitName();
+  auto tag = trait->getAttrOfType<StringAttr>("tuple.impl_generator");
+  if (!tag || tag.getValue() != "tuple")
+    return emitOpError() << "claim must be for a tuple-structure trait";
+  return success();
 }
 
 LogicalResult DowncastOp::inferReturnTypes(
@@ -617,13 +624,22 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   auto module = getOperation()->getParentOfType<ModuleOp>();
   if (!module) return emitOpError() << "not in a module";
 
-  // A claims operand still spelled as the mapper's associated type names the
-  // claims rather than listing them, so what it must equal is the projection
-  // this op's own operand types name. The elementwise comparison below runs
-  // once resolution writes the claim tuple in the projection's place.
+  // A claims operand still spelled as a mapper's associated type names the
+  // claims rather than listing them: the mapper it projects must be one that
+  // maps this op's trait, by its `tuple.mapped_trait` link, and what the
+  // operand must equal is that mapper's `Claims` at this op's own operand
+  // types. The elementwise comparison below runs once resolution writes the
+  // claim tuple in the projection's place.
   Type formalClaimsTy;
-  if (isa<trait::ProjectionType>(claims.getType())) {
-    formalClaimsTy = getMapperClaimsProjection();
+  if (auto projection = dyn_cast<trait::ProjectionType>(claims.getType())) {
+    FlatSymbolRefAttr mapperRef = projection.getTraitApplication().getTraitName();
+    auto mapper =
+        symbolTable.lookupNearestSymbolFrom<trait::TraitOp>(module, mapperRef);
+    if (!mapper || !isMapperOf(mapper, getTraitRefAttr()))
+      return emitOpError() << "claims operand projects " << mapperRef
+                           << ", which maps no " << getTraitRefAttr()
+                           << " across tuple elements";
+    formalClaimsTy = getMapperClaimsProjection(mapperRef);
   } else {
     auto elementwise = getFormalClaimsTypeForCmpOp(
       getContext(),
@@ -649,28 +665,13 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   return success();
 }
 
-Type CmpOp::getMapperClaimsProjection() {
+Type CmpOp::getMapperClaimsProjection(FlatSymbolRefAttr mapper) {
   MLIRContext *ctx = getContext();
   auto mapperApp = trait::TraitApplicationAttr::get(
-    ctx,
-    FlatSymbolRefAttr::get(ctx, getMapperTraitName(getTraitName())),
-    ArrayRef<Type>{getLhs().getType(), getRhs().getType()}
-  );
+    ctx, mapper, ArrayRef<Type>{getLhs().getType(), getRhs().getType()});
   return trait::ProjectionType::get(ctx, mapperApp,
                                     StringAttr::get(ctx, "Claims"),
                                     /*assocTypeArgs=*/{});
-}
-
-StringRef CmpOp::getTraitName() {
-  if (getPredicate() == CmpPredicate::eq ||
-      getPredicate() == CmpPredicate::ne) {
-    return "PartialEq";
-  }
-  return "PartialOrd";
-}
-
-FlatSymbolRefAttr CmpOp::getTraitRefAttr() {
-  return FlatSymbolRefAttr::get(getContext(), getTraitName());
 }
 
 StringRef CmpOp::getMethodName() {
@@ -705,6 +706,11 @@ ParseResult CmpOp::parse(OpAsmParser &p, OperationState &st) {
 
   auto predAttr = CmpPredicateAttr::get(p.getContext(), *maybePred);
   st.addAttribute("predicate", predAttr);
+
+  // parse @trait
+  FlatSymbolRefAttr traitAttr;
+  if (p.parseAttribute(traitAttr, "trait", st.attributes))
+    return failure();
 
   // parse ',' %lhs ',' %rhs (',' %claims)?
   OpAsmParser::UnresolvedOperand lhs, rhs, claims;
@@ -771,10 +777,11 @@ ParseResult CmpOp::parse(OpAsmParser &p, OperationState &st) {
 }
 
 void CmpOp::print(OpAsmPrinter &p) {
-  // <pred>, %lhs, %rhs[, %claims] attrs : !L, !R[, !C]
-  p << " " << getPredicate() << ", " << getLhs() << ", " << getRhs();
+  // <pred> @trait, %lhs, %rhs[, %claims] attrs : !L, !R[, !C]
+  p << " " << getPredicate() << " " << getTraitAttr() << ", " << getLhs()
+    << ", " << getRhs();
   if (auto c = getClaims()) p << ", " << c;
-  p.printOptionalAttrDict((*this)->getAttrs(), /*elided=*/{"predicate"});
+  p.printOptionalAttrDict((*this)->getAttrs(), /*elided=*/{"predicate", "trait"});
   p << " : " << getLhs().getType() << ", " << getRhs().getType();
   if (auto c = getClaims()) p << ", " << c.getType();
 }

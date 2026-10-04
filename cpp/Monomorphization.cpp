@@ -81,7 +81,8 @@ struct CmpOpMonoSynthesizeClaims : OpRewritePattern<CmpOp> {
     // re-emit the tuple.cmp op with the new claims operand
     rewriter.replaceOpWithNewOp<CmpOp>(
       op,
-      op.getPredicate(),
+      op.getPredicateAttr(),
+      op.getTraitRefAttr(),
       op.getLhs(),
       op.getRhs(),
       claimsTuple

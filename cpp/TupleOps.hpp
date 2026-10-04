@@ -14,12 +14,14 @@
 
 namespace mlir::tuple {
 
-/// The name of the trait that maps `mappedTraitName` across the elements of
-/// two tuples and binds the tuple of the resulting claims as its `Claims`
-/// associated type. One spelling: the generator that declares and implements
-/// the mapper and `tuple.cmp` both name it from here.
-inline std::string getMapperTraitName(StringRef mappedTraitName) {
-  return (Twine("tuple.Map") + mappedTraitName).str();
+/// Whether `mapper` maps the trait named `mapped` across the elements of two
+/// tuples: it is tagged `tuple.impl_generator = "map"` and its
+/// `tuple.mapped_trait` names `mapped`. A mapper is identified by that link,
+/// never by its own name, which is a label.
+inline bool isMapperOf(trait::TraitOp mapper, FlatSymbolRefAttr mapped) {
+  auto tag = mapper->getAttrOfType<StringAttr>("tuple.impl_generator");
+  return tag && tag.getValue() == "map" &&
+         mapper->getAttrOfType<FlatSymbolRefAttr>("tuple.mapped_trait") == mapped;
 }
 
 } // end mlir::tuple

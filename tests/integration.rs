@@ -142,7 +142,7 @@ fn build_test1_func<'c>(
     //   %b_0 = arith.constant 7 : i32
     //   %a = tuple.make(%a_0 : i32) : tuple<i32>
     //   %b = tuple.make(%b_0 : i32) : tuple<i32>
-    //   %r = tuple.cmp eq, %a, %b : tuple<i32>, tuple<i32>
+    //   %r = tuple.cmp eq @PartialEq, %a, %b : tuple<i32>, tuple<i32>
     //   return %r : i1
     // }
 
@@ -176,6 +176,7 @@ fn build_test1_func<'c>(
         let r = block.append_operation(tuple::cmp(
             loc,
             tuple::CmpPredicate::Eq,
+            "PartialEq",
             a,
             b,
             None,
@@ -221,12 +222,12 @@ fn append_test2_func<'c>(
     let source = r#"
     func.func @test2(%a: tuple<i32,i32,i32>, %b: tuple<i32,i32,i32>) -> i64
       attributes { llvm.emit_c_interface } {
-      %eq = tuple.cmp eq, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
-      %ne = tuple.cmp ne, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
-      %lt = tuple.cmp lt, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
-      %le = tuple.cmp le, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
-      %gt = tuple.cmp gt, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
-      %ge = tuple.cmp ge, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %eq = tuple.cmp eq @PartialEq, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %ne = tuple.cmp ne @PartialEq, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %lt = tuple.cmp lt @PartialOrd, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %le = tuple.cmp le @PartialOrd, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %gt = tuple.cmp gt @PartialOrd, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
+      %ge = tuple.cmp ge @PartialOrd, %a, %b : tuple<i32,i32,i32>, tuple<i32,i32,i32>
     
       %c1 = arith.constant 1 : i64
       %c2 = arith.constant 2 : i64

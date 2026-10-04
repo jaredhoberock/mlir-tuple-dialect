@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 use melior::{ir::{Location, Value, ValueLike, Operation}, Context};
-use mlir_sys::{MlirContext, MlirLocation, MlirOperation, MlirValue};
+use mlir_sys::{MlirContext, MlirLocation, MlirOperation, MlirStringRef, MlirValue};
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -17,7 +17,7 @@ pub enum CmpPredicate {
 #[link(name = "tuple_dialect")]
 unsafe extern "C" {
     fn tupleRegisterDialect(ctx: MlirContext);
-    fn tupleCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, lhs: MlirValue, rhs: MlirValue, claims: MlirValue) -> MlirOperation;
+    fn tupleCmpOpCreate(loc: MlirLocation, predicate: CmpPredicate, trait_: MlirStringRef, lhs: MlirValue, rhs: MlirValue, claims: MlirValue) -> MlirOperation;
     fn tupleGetOpCreate(loc: MlirLocation, tuple: MlirValue, index: isize) -> MlirOperation;
     fn tupleMakeOpCreate(loc: MlirLocation, elements: *const MlirValue, n: isize) -> MlirOperation;
 }
@@ -26,35 +26,26 @@ pub fn register(context: &Context) {
     unsafe { tupleRegisterDialect(context.to_raw()) }
 }
 
+/// `tuple.cmp` of `lhs` and `rhs` by `pred`, under the trait named `trait_`.
 pub fn cmp<'c>(
     loc: Location<'c>,
     pred: CmpPredicate,
+    trait_: &str,
     lhs: Value<'c,'_>,
     rhs: Value<'c,'_>,
     claims: Option<Value<'c,'_>>,
 ) -> Operation<'c> {
+    let trait_ = MlirStringRef { data: trait_.as_ptr() as *const _, length: trait_.len() };
+    let claims = claims.map_or(MlirValue { ptr: std::ptr::null_mut() }, |claims| claims.to_raw());
     unsafe {
-        let op = match claims {
-            Some(claims) => {
-                tupleCmpOpCreate(
-                    loc.to_raw(),
-                    pred,
-                    lhs.to_raw(),
-                    rhs.to_raw(),
-                    claims.to_raw(),
-                )
-            }
-            None => {
-                tupleCmpOpCreate(
-                    loc.to_raw(),
-                    pred,
-                    lhs.to_raw(),
-                    rhs.to_raw(),
-                    MlirValue { ptr: std::ptr::null_mut() },
-                )
-            }
-        };
-        Operation::from_raw(op)
+        Operation::from_raw(tupleCmpOpCreate(
+            loc.to_raw(),
+            pred,
+            trait_,
+            lhs.to_raw(),
+            rhs.to_raw(),
+            claims,
+        ))
     }
 }
 

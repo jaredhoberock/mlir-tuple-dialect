@@ -115,11 +115,20 @@ def CmpOp : TupleOp<"cmp", [
 ]> {
   let summary = "Compare two `tuple` values.";
   let description = [{
-    Compares two tuple values using a comparison predicate.
+    Compares two tuple values elementwise with a comparison predicate, under
+    the trait `trait` names: each element pair is compared by that trait's
+    method of the predicate's name (`eq`, `ne`, `lt`, `le`, `gt`, `ge`). The
+    op compares under the trait it names and no other; the claims operand,
+    where present, holds one claim of that trait per element position.
+
+    ```mlir
+    %res = tuple.cmp eq @PartialEq, %x, %y : tuple<i32>, tuple<i32>
+    ```
   }];
 
   let arguments = (ins
     CmpPredicateAttr:$predicate,
+    FlatSymbolRefAttr:$trait,
     TupleLike:$lhs,
     TupleLike:$rhs,
     Optional<AnyType>:$claims
@@ -129,10 +138,11 @@ def CmpOp : TupleOp<"cmp", [
 
   let builders = [
     // without claims; the generated builders cover the with-claims form
-    OpBuilder<(ins "CmpPredicate":$predicate, "Value":$lhs, "Value":$rhs), [{
+    OpBuilder<(ins "CmpPredicate":$predicate, "FlatSymbolRefAttr":$trait,
+                   "Value":$lhs, "Value":$rhs), [{
       build($_builder, $_state,
-            predicate, lhs, rhs,
-            /*claims=*/Value{});
+            CmpPredicateAttr::get($_builder.getContext(), predicate), trait,
+            lhs, rhs, /*claims=*/Value{});
     }]>
   ];
 
@@ -158,14 +168,16 @@ def CmpOp : TupleOp<"cmp", [
     }
 
     FailureOr<mlir::trait::TraitOp> getTrait(llvm::function_ref<InFlightDiagnostic()> err = nullptr);
-    FlatSymbolRefAttr getTraitRefAttr();
-    StringRef getTraitName();
+
+    /// The trait this op compares under, the one it names.
+    FlatSymbolRefAttr getTraitRefAttr() { return getTraitAttr(); }
+
     StringRef getMethodName();
 
-    /// The claims operand's type while the mapper that supplies it has not
-    /// been resolved: the projection of `Claims` from the trait that maps
-    /// this comparison across the elements of these two tuple operands.
-    Type getMapperClaimsProjection();
+    /// The claims operand's type while `mapper`, which maps this op's trait
+    /// across tuple elements, has not been resolved: the projection of
+    /// `Claims` from `mapper` applied to these two tuple operands.
+    Type getMapperClaimsProjection(FlatSymbolRefAttr mapper);
   }];
 
   let hasCustomAssemblyFormat = 1;
@@ -345,13 +357,15 @@ def FlatMapOp : TupleOp<"flat_map", [
 
 def DowncastOp : TupleOp<"downcast", [
   Pure,
-  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>,
+  DeclareOpInterfaceMethods<SymbolUserOpInterface>
 ]> {
-  let summary = "Downcast !trait.poly to !tuple.poly given a Tuple claim";
+  let summary = "Downcast !trait.poly to !tuple.poly given a tuple-structure claim";
   let description = [{
     Performs one identity-preserving substitution from a generic
     trait-polymorphic type into tuple-polymorphic form, justified by a
-    source `@Tuple` claim.
+    claim of the tuple-structure trait: the trait tagged
+    `tuple.impl_generator = "tuple"`, whatever it is named.
 
     Example:
 ```mlir

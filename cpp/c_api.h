@@ -25,9 +25,11 @@ typedef enum {
   TupleCmpPredicateGe
 } TupleCmpPredicate;
 
-// If `claims` is null (mlirValueIsNull), the op is created without a claims operand.
-MlirOperation tupleCmpOpCreate(MlirLocation loc, 
+// Compares under the trait named `trait`. If `claims` is null
+// (mlirValueIsNull), the op is created without a claims operand.
+MlirOperation tupleCmpOpCreate(MlirLocation loc,
                                TupleCmpPredicate predicate,
+                               MlirStringRef trait,
                                MlirValue lhs,
                                MlirValue rhs,
                                MlirValue claims);

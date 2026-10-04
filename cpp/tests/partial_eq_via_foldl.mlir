@@ -10,7 +10,7 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
+trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) attributes {tuple.impl_generator = "partial_eq"} {
   trait.method @eq(!S,!O) -> i1
 }
 
@@ -51,7 +51,7 @@ trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!TS, !T
       : () -> !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
 
     // fold @PartialEq::@eq over the tuples
-    %res = tuple.cmp eq, %self, %other, %claims
+    %res = tuple.cmp eq @PartialEq, %self, %other, %claims
       : !TS, !TO, !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
     trait.return %res : i1
   }

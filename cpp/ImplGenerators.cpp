@@ -310,10 +310,10 @@ struct MapGenerator : trait::ImplGenerator {
   }
 };
 
-/// The mapper of `mappedTrait` declared in `module`, declared at `builder`'s
-/// insertion point where the module lacks it: the trait mapping `mappedTrait`
-/// across the elements of two tuples, which `MapGenerator` implements, binding
-/// the tuple of the resulting claims as its `Claims` associated type:
+/// The mapper of `mappedTrait` in `module`, declared at `builder`'s insertion
+/// point where the module has none: the trait mapping `mappedTrait` across the
+/// elements of two tuples, which `MapGenerator` implements, binding the tuple
+/// of the resulting claims as its `Claims` associated type:
 ///
 ///   trait.trait @tuple.MapEq(%self: !trait.claim<@tuple.MapEq[!S, !O]>) attributes {
 ///     tuple.impl_generator = "map",
@@ -323,18 +323,31 @@ struct MapGenerator : trait::ImplGenerator {
 ///     trait.method @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///   }
 ///
-/// The mapper is applied to the two tuple types alone: the tuple of
-/// per-element claims is what its impl binds, so an impl for a given pair of
-/// tuples determines it rather than a caller having to spell it.
+/// A mapper is the trait its `tuple.mapped_trait` link makes one
+/// (`isMapperOf`), never a trait of some name: the name a declared mapper
+/// takes is a label, made unique against the module's symbols, so no other
+/// declaration under that name is ever taken for it. The mapper is applied to
+/// the two tuple types alone: the tuple of per-element claims is what its impl
+/// binds, so an impl for a given pair of tuples determines it rather than a
+/// caller having to spell it.
 static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
                                             trait::TraitOp mappedTrait,
                                             OpBuilder &builder) {
   using namespace mlir::trait;
   MLIRContext *ctx = builder.getContext();
-  std::string name = getMapperTraitName(mappedTrait.getSymName());
+  auto mappedRef = FlatSymbolRefAttr::get(ctx, mappedTrait.getSymName());
+  for (TraitOp declared : module.getOps<TraitOp>())
+    if (isMapperOf(declared, mappedRef))
+      return FlatSymbolRefAttr::get(ctx, declared.getSymName());
+
+  SymbolTable symbols(module);
+  auto taken = [&](StringRef name) { return symbols.lookup(name) != nullptr; };
+  SmallString<32> name("tuple.Map");
+  name += mappedTrait.getSymName();
+  unsigned suffix = 0;
+  if (taken(name))
+    name = SymbolTable::generateSymbolName<32>(name, taken, suffix);
   auto mapperRef = FlatSymbolRefAttr::get(ctx, name);
-  if (SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapperRef))
-    return mapperRef;
 
   OpBuilder::InsertionGuard guard(builder);
   Location loc = builder.getUnknownLoc();
@@ -345,8 +358,7 @@ static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
   auto mapper = TraitOp::create(builder, loc, name, /*typeParams=*/ArrayRef{S, O},
                                 /*requirements=*/ArrayRef<Type>{});
   mapper->setAttr("tuple.impl_generator", StringAttr::get(ctx, "map"));
-  mapper->setAttr("tuple.mapped_trait",
-                  FlatSymbolRefAttr::get(ctx, mappedTrait.getSymName()));
+  mapper->setAttr("tuple.mapped_trait", mappedRef);
 
   builder.setInsertionPointToStart(&mapper.getBody().front());
   AssocTypeOp::create(builder, loc, "Claims", TypeAttr{}, ArrayAttr{});
@@ -372,7 +384,7 @@ static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
 ///       %claims = trait.method.call %a
 ///         @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
 ///         : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
-///       %res = tuple.cmp eq, %x, %y, %claims
+///       %res = tuple.cmp eq @PartialEq, %x, %y, %claims
 ///       trait.return %res : i1
 ///     }
 ///   }
@@ -442,8 +454,12 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
       /*arguments=*/ValueRange{}
     ).getResult(0);
 
-    // %res = tuple.cmp <predicate>, %self, %other, %claims
-    Value res = CmpOp::create(detached, loc, predicate, self, other, claims);
+    // %res = tuple.cmp <predicate> @Trait, %self, %other, %claims: the
+    // comparison is under the trait this impl serves, the one it names
+    Value res = CmpOp::create(detached, loc,
+                              CmpPredicateAttr::get(ctx, predicate),
+                              FlatSymbolRefAttr::get(ctx, trait.getSymName()),
+                              self, other, claims);
 
     // trait.return %res : i1
     trait::ReturnOp::create(detached, loc, res);
@@ -454,15 +470,15 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
   return impl;
 }
 
-/// TuplePartialEqGenerator answers a demanded @PartialEq over two tuples of
-/// equal arity with the impl for exactly that pair.
+/// TuplePartialEqGenerator answers a demanded application of the trait tagged
+/// `tuple.impl_generator = "partial_eq"` over two tuples of equal arity with
+/// the impl for exactly that pair.
 struct TuplePartialEqGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
                OpBuilder &builder) const override {
-    // only apply to the PartialEq trait
-    if (trait.getSymName() != "PartialEq")
+    if (failed(matchGenerator(trait, wanted, "partial_eq", 2, 2)))
       return failure();
 
     std::pair<StringRef, CmpPredicate> methods[] = {{"eq", CmpPredicate::eq}};
@@ -470,15 +486,15 @@ struct TuplePartialEqGenerator : trait::ImplGenerator {
   }
 };
 
-/// TuplePartialOrdGenerator answers a demanded @PartialOrd over two tuples of
-/// equal arity with the impl for exactly that pair.
+/// TuplePartialOrdGenerator answers a demanded application of the trait tagged
+/// `tuple.impl_generator = "partial_ord"` over two tuples of equal arity with
+/// the impl for exactly that pair.
 struct TuplePartialOrdGenerator : trait::ImplGenerator {
   FailureOr<trait::ImplOp>
   generateImpl(trait::TraitOp trait,
                trait::ClaimType wanted,
                OpBuilder &builder) const override {
-    // only apply to the PartialOrd trait
-    if (trait.getSymName() != "PartialOrd")
+    if (failed(matchGenerator(trait, wanted, "partial_ord", 2, 2)))
       return failure();
 
     std::pair<StringRef, CmpPredicate> methods[] = {

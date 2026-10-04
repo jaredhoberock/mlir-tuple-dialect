@@ -8,7 +8,7 @@
 // CHECK: %true = arith.constant true
 // CHECK: return %true : i1
 func.func @cmp_eq_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp eq, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp eq @PartialEq, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
@@ -17,13 +17,13 @@ func.func @cmp_eq_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 // CHECK: %false = arith.constant false
 // CHECK: return %false : i1
 func.func @cmp_ne_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp ne, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp ne @PartialEq, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self_claim: !trait.claim<@PartialEq[!S, !O]>) {
+trait.trait private @PartialEq(%self_claim: !trait.claim<@PartialEq[!S, !O]>) attributes {tuple.impl_generator = "partial_eq"} {
   trait.method @eq(!S, !O) -> i1
 
   trait.method @ne(%self: !S, %other: !O) -> i1 {
@@ -48,7 +48,7 @@ trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]
 // CHECK: %2 = arith.cmpi eq, %0, %1 : i32
 // CHECK: return %2 : i1
 func.func @cmp_eq_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp eq, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp eq @PartialEq, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -59,7 +59,7 @@ func.func @cmp_eq_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
 // CHECK: %2 = arith.cmpi ne, %0, %1 : i32
 // CHECK: return %2 : i1
 func.func @cmp_ne_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp ne, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp ne @PartialEq, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -81,7 +81,7 @@ trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]
 // CHECK: %6 = arith.andi %2, %5 : i1
 // CHECK: return %6 : i1
 func.func @cmp_eq_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp eq, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp eq @PartialEq, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -96,7 +96,7 @@ func.func @cmp_eq_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %6 = arith.ori %2, %5 : i1
 // CHECK: return %6 : i1
 func.func @cmp_ne_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp ne, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp ne @PartialEq, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -117,7 +117,7 @@ func.func @cmp_ne_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %12 = arith.andi %2, %11 : i1
 // CHECK: return %12 : i1
 func.func @cmp_eq_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp eq, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp eq @PartialEq, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -140,7 +140,7 @@ func.func @cmp_eq_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: %13 = arith.ori %2, %12 : i1
 // CHECK: return %13 : i1
 func.func @cmp_ne_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp ne, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp ne @PartialEq, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -158,7 +158,7 @@ func.func @cmp_ne_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: return %8 : i1
 !MixedTuple = tuple<tuple<>, i64, tuple<i64>>
 func.func @cmp_eq_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp eq, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp eq @PartialEq, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }
 
@@ -175,6 +175,6 @@ func.func @cmp_eq_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
 // CHECK: %8 = arith.ori %2, %7 : i1
 // CHECK: return %8 : i1
 func.func @cmp_ne_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp ne, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp ne @PartialEq, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }

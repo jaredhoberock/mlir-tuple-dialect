@@ -5,6 +5,7 @@
 #include "TupleOps.hpp"
 #include <mlir/CAPI/IR.h>
 #include <mlir/CAPI/Pass.h>
+#include <mlir/CAPI/Support.h>
 #include <mlir/IR/Builders.h>
 
 using namespace mlir;
@@ -46,6 +47,7 @@ MlirOperation tupleGetOpCreate(MlirLocation loc, MlirValue tuple, int64_t index)
 
 MlirOperation tupleCmpOpCreate(MlirLocation loc,
                                TupleCmpPredicate predicate,
+                               MlirStringRef trait,
                                MlirValue lhs,
                                MlirValue rhs,
                                MlirValue claims) {
@@ -53,10 +55,13 @@ MlirOperation tupleCmpOpCreate(MlirLocation loc,
   OpBuilder builder(ctx);
 
   auto cppPredicate = static_cast<tuple::CmpPredicate>(predicate);
+  auto traitRef = FlatSymbolRefAttr::get(ctx, unwrap(trait));
 
   auto op = mlirValueIsNull(claims)
-    ? CmpOp::create(builder, unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs))
-    : CmpOp::create(builder, unwrap(loc), cppPredicate, unwrap(lhs), unwrap(rhs), unwrap(claims));
+    ? CmpOp::create(builder, unwrap(loc), cppPredicate, traitRef, unwrap(lhs), unwrap(rhs))
+    : CmpOp::create(builder, unwrap(loc),
+                    CmpPredicateAttr::get(ctx, cppPredicate), traitRef,
+                    unwrap(lhs), unwrap(rhs), unwrap(claims));
 
   return wrap(op.getOperation());
 }

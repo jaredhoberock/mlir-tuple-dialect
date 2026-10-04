@@ -9,7 +9,7 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
+trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) attributes {tuple.impl_generator = "partial_eq"} {
   trait.method @eq(!S,!O) -> i1
 }
 

@@ -8,7 +8,7 @@
 // CHECK: %false = arith.constant false
 // CHECK: return %false : i1
 func.func @cmp_lt_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp lt, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp lt @PartialOrd, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
@@ -17,7 +17,7 @@ func.func @cmp_lt_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 // CHECK: %true = arith.constant true
 // CHECK: return %true : i1
 func.func @cmp_le_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp le, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp le @PartialOrd, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
@@ -26,7 +26,7 @@ func.func @cmp_le_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 // CHECK: %false = arith.constant false
 // CHECK: return %false : i1
 func.func @cmp_gt_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp gt, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp gt @PartialOrd, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
@@ -35,13 +35,13 @@ func.func @cmp_gt_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 // CHECK: %true = arith.constant true
 // CHECK: return %true : i1
 func.func @cmp_ge_empty(%a : tuple<>, %b : tuple<>) -> i1 {
-  %res = tuple.cmp ge, %a, %b : tuple<>, tuple<>
+  %res = tuple.cmp ge @PartialOrd, %a, %b : tuple<>, tuple<>
   return %res : i1
 }
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialOrd(%self: !trait.claim<@PartialOrd[!S, !O]>) {
+trait.trait private @PartialOrd(%self: !trait.claim<@PartialOrd[!S, !O]>) attributes {tuple.impl_generator = "partial_ord"} {
   trait.method @lt(!S, !O) -> i1
   trait.method @le(!S, !O) -> i1
   trait.method @gt(!S, !O) -> i1
@@ -74,7 +74,7 @@ trait.impl private @PartialOrd_i32(%self_claim: !trait.claim<@PartialOrd[i32, i3
 // CHECK: %2 = arith.cmpi slt, %0, %1 : i32
 // CHECK: return %2 : i1
 func.func @cmp_lt_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp lt, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp lt @PartialOrd, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -90,7 +90,7 @@ func.func @cmp_lt_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
 // CHECK: %6 = arith.ori %2, %5 : i1
 // CHECK: return %6 : i1
 func.func @cmp_le_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp le, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp le @PartialOrd, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -101,7 +101,7 @@ func.func @cmp_le_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
 // CHECK: %2 = arith.cmpi sgt, %0, %1 : i32
 // CHECK: return %2 : i1
 func.func @cmp_gt_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp gt, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp gt @PartialOrd, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -117,7 +117,7 @@ func.func @cmp_gt_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
 // CHECK: %6 = arith.ori %3, %5 : i1
 // CHECK: return %6 : i1
 func.func @cmp_ge_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
-  %res = tuple.cmp ge, %a, %b : tuple<i32>, tuple<i32>
+  %res = tuple.cmp ge @PartialOrd, %a, %b : tuple<i32>, tuple<i32>
   return %res : i1
 }
 
@@ -156,7 +156,7 @@ trait.impl private @PartialOrd_i64(%self_claim: !trait.claim<@PartialOrd[i64, i6
 // CHECK: %10 = arith.ori %2, %9 : i1
 // CHECK: return %10 : i1
 func.func @cmp_lt_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp lt, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp lt @PartialOrd, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -181,7 +181,7 @@ func.func @cmp_lt_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %15 = arith.ori %13, %14 : i1
 // CHECK: return %15 : i1
 func.func @cmp_le_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp le, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp le @PartialOrd, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -201,7 +201,7 @@ func.func @cmp_le_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %10 = arith.ori %3, %9 : i1
 // CHECK: return %10 : i1
 func.func @cmp_gt_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp gt, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp gt @PartialOrd, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -226,7 +226,7 @@ func.func @cmp_gt_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %15 = arith.ori %13, %14 : i1
 // CHECK: return %15 : i1
 func.func @cmp_ge_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp ge, %a, %b : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp ge @PartialOrd, %a, %b : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 
@@ -256,7 +256,7 @@ func.func @cmp_ge_pair_i64(%a : tuple<i64,i64>, %b : tuple<i64,i64>) -> i1 {
 // CHECK: %20 = arith.ori %2, %19 : i1
 // CHECK: return %20 : i1
 func.func @cmp_lt_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp lt, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp lt @PartialOrd, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -301,7 +301,7 @@ func.func @cmp_lt_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: %35 = arith.ori %33, %34 : i1
 // CHECK: return %35 : i1
 func.func @cmp_le_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp le, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp le @PartialOrd, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -331,7 +331,7 @@ func.func @cmp_le_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: %20 = arith.ori %3, %19 : i1
 // CHECK: return %20 : i1
 func.func @cmp_gt_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp gt, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp gt @PartialOrd, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -376,7 +376,7 @@ func.func @cmp_gt_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: %35 = arith.ori %33, %34 : i1
 // CHECK: return %35 : i1
 func.func @cmp_ge_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tuple<i64,i64>>) -> i1 {
-  %res = tuple.cmp ge, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
+  %res = tuple.cmp ge @PartialOrd, %a, %b : tuple<i64,tuple<i64,i64>>, tuple<i64,tuple<i64,i64>>
   return %res : i1
 }
 
@@ -399,7 +399,7 @@ func.func @cmp_ge_nested_i64(%a : tuple<i64,tuple<i64,i64>>, %b : tuple<i64,tupl
 // CHECK: return %12 : i1
 !MixedTuple = tuple<tuple<>, i64, tuple<i64>>
 func.func @cmp_lt_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp lt, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp lt @PartialOrd, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }
 
@@ -428,7 +428,7 @@ func.func @cmp_lt_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
 // CHECK: %19 = arith.ori %17, %18 : i1
 // CHECK: return %19 : i1
 func.func @cmp_le_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp le, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp le @PartialOrd, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }
 
@@ -450,7 +450,7 @@ func.func @cmp_le_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
 // CHECK: %12 = arith.ori %3, %11 : i1
 // CHECK: return %12 : i1
 func.func @cmp_gt_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp gt, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp gt @PartialOrd, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }
 
@@ -479,6 +479,6 @@ func.func @cmp_gt_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
 // CHECK: %19 = arith.ori %17, %18 : i1
 // CHECK: return %19 : i1
 func.func @cmp_ge_mixed_i64(%a : !MixedTuple, %b : !MixedTuple) -> i1 {
-  %res = tuple.cmp ge, %a, %b : !MixedTuple, !MixedTuple
+  %res = tuple.cmp ge @PartialOrd, %a, %b : !MixedTuple, !MixedTuple
   return %res : i1
 }
