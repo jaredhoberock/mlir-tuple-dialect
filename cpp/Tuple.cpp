@@ -35,10 +35,6 @@ struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
 struct MonomorphizationInterface : public trait::MonomorphizationInterface {
   using trait::MonomorphizationInterface::MonomorphizationInterface;
 
-  void populateConvertToTraitPatterns(RewritePatternSet& patterns) const override final {
-    tuple::populateConvertTupleToTraitPatterns(patterns);
-  }
-
   void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) const override final {
     tuple::populateInstantiateMonomorphsPatterns(patterns);
   }

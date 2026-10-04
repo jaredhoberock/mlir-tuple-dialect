@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: mlir-opt %s --pass-pipeline="builtin.module(resolve-impls-trait)" | FileCheck %s
+// RUN: mlir-opt %s --pass-pipeline="builtin.module(instantiate-monomorphs-trait)" | FileCheck %s
 
 // An impl generated for exactly the demanded application is a declared
 // candidate of that application from then on, so a second demand of the same

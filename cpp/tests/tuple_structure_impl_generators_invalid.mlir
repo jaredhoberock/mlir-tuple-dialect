@@ -11,6 +11,7 @@ trait.trait private @tuple.HomogeneousTuple(%self: !trait.claim<@tuple.Homogeneo
   trait.assoc_type @Element
 }
 
+// expected-error @+2 {{no impl with satisfiable assumptions for '!trait.proj<@tuple.HomogeneousTuple[tuple<i64, i1>], "Element">'}}
 // expected-error @+1 {{after instantiate-monomorphs}}
 func.func @homogeneous_mixed_rejected(
     %x: !trait.proj<@tuple.HomogeneousTuple[tuple<i64, i1>], "Element">)

@@ -310,11 +310,61 @@ struct MapGenerator : trait::ImplGenerator {
   }
 };
 
+/// The mapper of `mappedTrait` declared in `module`, declared at `builder`'s
+/// insertion point where the module lacks it: the trait mapping `mappedTrait`
+/// across the elements of two tuples, which `MapGenerator` implements, binding
+/// the tuple of the resulting claims as its `Claims` associated type:
+///
+///   trait.trait @tuple.MapEq(%self: !trait.claim<@tuple.MapEq[!S, !O]>) attributes {
+///     tuple.impl_generator = "map",
+///     tuple.mapped_trait   = @Eq
+///   } {
+///     trait.assoc_type @Claims
+///     trait.method @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
+///   }
+///
+/// The mapper is applied to the two tuple types alone: the tuple of
+/// per-element claims is what its impl binds, so an impl for a given pair of
+/// tuples determines it rather than a caller having to spell it.
+static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
+                                            trait::TraitOp mappedTrait,
+                                            OpBuilder &builder) {
+  using namespace mlir::trait;
+  MLIRContext *ctx = builder.getContext();
+  std::string name = getMapperTraitName(mappedTrait.getSymName());
+  auto mapperRef = FlatSymbolRefAttr::get(ctx, name);
+  if (SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapperRef))
+    return mapperRef;
+
+  OpBuilder::InsertionGuard guard(builder);
+  Location loc = builder.getUnknownLoc();
+  // The two parameters of the trait being built, labelled by their position in
+  // its own header: a label is local to the declaration that binds it.
+  Type S = trait::PolyType::get(ctx, 0);
+  Type O = trait::PolyType::get(ctx, 1);
+  auto mapper = TraitOp::create(builder, loc, name, /*typeParams=*/ArrayRef{S, O},
+                                /*requirements=*/ArrayRef<Type>{});
+  mapper->setAttr("tuple.impl_generator", StringAttr::get(ctx, "map"));
+  mapper->setAttr("tuple.mapped_trait",
+                  FlatSymbolRefAttr::get(ctx, mappedTrait.getSymName()));
+
+  builder.setInsertionPointToStart(&mapper.getBody().front());
+  AssocTypeOp::create(builder, loc, "Claims", TypeAttr{}, ArrayAttr{});
+  auto selfApp = TraitApplicationAttr::get(ctx, mapperRef, ArrayRef{S, O});
+  auto claimsTy = builder.getFunctionType(
+      /*inputs=*/TypeRange{},
+      /*results=*/ProjectionType::get(ctx, selfApp,
+                                      StringAttr::get(ctx, "Claims"),
+                                      /*assocTypeArgs=*/{}));
+  MethodOp::create(builder, loc, "claims", claimsTy);
+  return mapperRef;
+}
+
 /// Builds the impl of a comparison trait for two tuples of equal arity.
 ///
 /// The impl answers the demanded pair itself and assumes the mapper for the
-/// same pair; each method asks the mapper for the elementwise claims and hands
-/// them to `tuple.cmp`:
+/// same pair, which it declares where the module lacks it; each method asks the
+/// mapper for the elementwise claims and hands them to `tuple.cmp`:
 ///
 ///   trait.impl @...(%self: !trait.claim<@PartialEq[tuple<i32>, tuple<i32>]>,
 ///                   %a: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>) {
@@ -345,10 +395,8 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
   MLIRContext *ctx = builder.getContext();
   Location loc = builder.getUnknownLoc();
 
-  // the mapper trait must exist: it is what supplies the elementwise claims
-  auto mapperRef = FlatSymbolRefAttr::get(ctx, getMapperTraitName(trait.getSymName()));
-  if (!SymbolTable::lookupNearestSymbolFrom<TraitOp>(module, mapperRef))
-    return failure();
+  // the mapper trait is what supplies the elementwise claims
+  FlatSymbolRefAttr mapperRef = declareMapperTrait(module, trait, builder);
 
   auto selfApp = TraitApplicationAttr::get(
     ctx,

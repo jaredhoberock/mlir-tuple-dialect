@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 
-// RUN: mlir-opt %s -split-input-file --pass-pipeline="builtin.module(resolve-impls-trait)" -verify-diagnostics | FileCheck %s
+// RUN: mlir-opt %s -split-input-file --pass-pipeline="builtin.module(instantiate-monomorphs-trait)" -verify-diagnostics | FileCheck %s
 
 // The map generator answers the pair of tuple types it was asked about: two
 // demands of different arities get one impl each, whose premises and
@@ -93,8 +93,9 @@ trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[
 func.func @claims_of_tuples_of_unequal_arity()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>], "Claims"> {
   // expected-error @+2 {{no impl with satisfiable assumptions}}
-  // expected-error @+1 {{unresolved monomorphic trait.allege}}
+  // expected-error @+1 {{unproven monomorphic claim '!trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32, f64>]>' after instantiate-monomorphs}}
   %c = trait.allege @tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>]
+  // expected-error @+1 {{unresolved projection '!trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32, f64>], "Claims">' after instantiate-monomorphs}}
   %claims = trait.method.call %c @tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>]::@claims()
     : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>], "Claims">
   return %claims : !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>], "Claims">

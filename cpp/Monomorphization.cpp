@@ -18,21 +18,16 @@ namespace mlir::tuple {
 /// Elaboration.cpp and is reused from here via
 /// `populateTupleElaborationPatterns`.
 ///
-/// 1. populateConvertTupleToTraitPatterns
-///    -----------------------------------
-///    Introduces tuple→trait integration IR that *cannot* appear during
-///    instantiation. This includes generating helper traits and synthesizing
-///    per-element trait claims. Runs before monomorphization.
-///
-/// 2. populateInstantiateMonomorphsPatterns
+/// 1. populateInstantiateMonomorphsPatterns
 ///    -------------------------------------
 ///    Specializes polymorphic tuple operations once shapes and substitutions
-///    are known. Higher-order region-bearing ops are unrolled per element
-///    via in-dialect elaboration (Elaboration.cpp). This set is contributed
-///    to the trait dialect's `monomorphize-trait` pipeline through the
+///    are known, and alleges a monomorphic `tuple.cmp`'s per-element claims.
+///    Higher-order region-bearing ops are unrolled per element via in-dialect
+///    elaboration (Elaboration.cpp). This set is contributed to the trait
+///    dialect's `monomorphize-trait` pipeline through the
 ///    MonomorphizationInterface.
 ///
-/// 3. populateErasePolymorphsPatterns
+/// 2. populateErasePolymorphsPatterns
 ///    --------------------------------
 ///    Cooperates with a TypeConverter to remove `!trait.claim` types from the
 ///    IR after trait reasoning is complete. Adjusts tuple IR (indices, make
@@ -40,103 +35,8 @@ namespace mlir::tuple {
 
 
 //===----------------------------------------------------------------------===//
-// populateConvertTupleToTraitPatterns
+// populateInstantiateMonomorphsPatterns
 //===----------------------------------------------------------------------===//
-
-// synthesizes a trait.trait @tuple.Map<mapped-trait-name> trait if it does not already exist
-// this is anchored on the TraitOp whose mapper we want to introduce because we can't
-// anchor on ModuleOp
-struct IntroduceMapperTrait : OpRewritePattern<trait::TraitOp> {
-  StringRef mappedTraitName;
-
-  IntroduceMapperTrait(MLIRContext *ctx, StringRef mappedTraitName)
-    : OpRewritePattern<trait::TraitOp>(ctx), mappedTraitName(mappedTraitName) {}
-
-  LogicalResult matchAndRewrite(trait::TraitOp op,
-                                PatternRewriter& rewriter) const override {
-    // only anchor on the named mapped trait
-    if (op.getSymName() != mappedTraitName)
-      return rewriter.notifyMatchFailure(op, "not the trait to map");
-
-    auto module = op->getParentOfType<ModuleOp>();
-    if (!module)
-      return rewriter.notifyMatchFailure(op, "not in a module");
-
-    MLIRContext *ctx = op.getContext();
-    std::string name = getMapperTraitName(mappedTraitName);
-
-    // if a trait by this name already exists, bail
-    if (SymbolTable::lookupNearestSymbolFrom<trait::TraitOp>(
-          module, FlatSymbolRefAttr::get(ctx, name)))
-      return rewriter.notifyMatchFailure(op, "mapper trait already exists");
-
-    // insert at the end of the module body
-    PatternRewriter::InsertionGuard guard(rewriter);
-    rewriter.setInsertionPointToEnd(module.getBody());
-    Location loc = rewriter.getUnknownLoc();
-
-    // XXX TODO we shouldn't assume that the trait to be mapped has two type parameters
-
-    // create:
-    //
-    // !S = trait.poly<0>
-    // !O = trait.poly<1>
-    // trait.trait @tuple.Map<mapped-trait-name>(
-    //     %self: !trait.claim<@tuple.Map<mapped-trait-name>[!S,!O]>) attributes {
-    //   tuple.impl_generator = "map",
-    //   tuple.mapped_trait = @<mapped-trait-name>
-    // } {
-    //   trait.assoc_type @Claims
-    //   trait.method @claims()
-    //     -> !trait.proj<@tuple.Map<mapped-trait-name>[!S,!O], "Claims">
-    // }
-    //
-    // The mapper is applied to the two tuple types alone: the tuple of
-    // per-element claims is what its impl binds, so an impl for a given pair
-    // of tuples determines it rather than a caller having to spell it.
-
-    // The two parameters of the trait being built, labelled by their position in
-    // its own header: a label is local to the declaration that binds it.
-    Type S = trait::PolyType::get(ctx, 0);
-    Type O = trait::PolyType::get(ctx, 1);
-
-    auto trait = trait::TraitOp::create(rewriter,
-      loc,
-      name,
-      /*typeParams=*/ArrayRef{S, O},
-      /*requirements=*/ArrayRef<Type>{}
-    );
-
-    // attach attributes for the map generator
-    trait->setAttr("tuple.impl_generator", StringAttr::get(ctx, "map"));
-    trait->setAttr("tuple.mapped_trait", FlatSymbolRefAttr::get(ctx, mappedTraitName));
-
-    // add @Claims and @claims() to the trait body
-    {
-      Block &body = trait.getBody().front();
-      rewriter.setInsertionPointToStart(&body);
-
-      trait::AssocTypeOp::create(rewriter, loc, "Claims", TypeAttr{}, ArrayAttr{});
-
-      auto selfApp = trait::TraitApplicationAttr::get(
-        ctx, FlatSymbolRefAttr::get(ctx, name), ArrayRef{S, O});
-      auto claimsTy = rewriter.getFunctionType(
-        /*inputs=*/TypeRange{},
-        /*results=*/trait::ProjectionType::get(ctx, selfApp,
-                                               StringAttr::get(ctx, "Claims"),
-                                               /*assocTypeArgs=*/{})
-      );
-
-      trait::MethodOp::create(rewriter,
-        loc,
-        "claims",
-        claimsTy
-      );
-    }
-
-    return success();
-  }
-};
 
 // rewrites tuple.cmp with monomorphic lhs & rhs, but no claims operand
 // synthesizes a tuple of claims and then re-emits a tuple.cmp op with
@@ -192,24 +92,6 @@ struct CmpOpMonoSynthesizeClaims : OpRewritePattern<CmpOp> {
 };
 
 
-/// Register patterns that introduce trait-specific stuff that *cannot*
-/// be introduced during instantiation/monomorphization
-void populateConvertTupleToTraitPatterns(RewritePatternSet& patterns) {
-  // introduce the @tuple.MapPartialEq and @tuple.MapPartialOrd traits
-  // that drive tuple-level implementations of these traits
-  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialEq");
-  patterns.add<IntroduceMapperTrait>(patterns.getContext(), "PartialOrd");
-
-  // these patterns introduce trait.allege ops, which cannot happen
-  // during monomorphization
-  patterns.add<CmpOpMonoSynthesizeClaims>(patterns.getContext());
-}
-
-
-//===----------------------------------------------------------------------===//
-// populateInstantiateMonomorphsPatterns
-//===----------------------------------------------------------------------===//
-
 struct DowncastOpLowering : OpRewritePattern<DowncastOp> {
   using OpRewritePattern::OpRewritePattern;
 
@@ -231,6 +113,9 @@ struct DowncastOpLowering : OpRewritePattern<DowncastOp> {
 
 void populateInstantiateMonomorphsPatterns(RewritePatternSet& patterns) {
   patterns.add<DowncastOpLowering>(patterns.getContext());
+  // A monomorphic tuple.cmp alleges its per-element claims, which the stage's
+  // driver proves where they stand.
+  patterns.add<CmpOpMonoSynthesizeClaims>(patterns.getContext());
   // The in-dialect elaboration of higher-level tuple ops into the
   // tuple.make / tuple.get core is the same work needed for
   // monomorphization, so reuse it directly.

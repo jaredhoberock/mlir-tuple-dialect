@@ -16,8 +16,8 @@ namespace mlir::tuple {
 
 /// The name of the trait that maps `mappedTraitName` across the elements of
 /// two tuples and binds the tuple of the resulting claims as its `Claims`
-/// associated type. One spelling: the pattern that introduces the mapper, the
-/// generator that implements it, and `tuple.cmp` all name it from here.
+/// associated type. One spelling: the generator that declares and implements
+/// the mapper and `tuple.cmp` both name it from here.
 inline std::string getMapperTraitName(StringRef mappedTraitName) {
   return (Twine("tuple.Map") + mappedTraitName).str();
 }
