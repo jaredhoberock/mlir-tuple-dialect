@@ -11,10 +11,9 @@
 // CHECK-NOT: tuple.flatten
 // CHECK: %[[X:.+]] = tuple.get %arg0, 0 : tuple<i64> -> i64
 // CHECK: %[[M:.+]] = tuple.make(%[[X]], %[[X]] : i64, i64) : tuple<i64, i64>
-// After the map/flatten lowering the outer wrapping make/get pairs remain
-// but round-trip through the same values; final make takes the flattened pair.
-// CHECK: %{{.+}} = tuple.make({{.*}} : i64, i64) : tuple<i64, i64>
-// CHECK: return
+// The map/flatten lowering's wrapping make/get pairs fold away: the result is
+// the body's pair itself.
+// CHECK: return %[[M]] : tuple<i64, i64>
 func.func @flat_map_i64_dup(%arg0: tuple<i64>) -> tuple<i64,i64> {
   %res = tuple.flat_map %arg0 : tuple<i64> -> tuple<i64,i64> {
   ^bb0(%x: i64):

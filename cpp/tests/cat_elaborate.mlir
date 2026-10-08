@@ -76,15 +76,12 @@ func.func @cat_nested_left(%a : tuple<i32, tuple<i64,i8>>, %b : tuple<i1>)
 // get pieces for inner cat
 // CHECK: %[[B0:.+]] = tuple.get %arg1, 0 : tuple<i64> -> i64
 // CHECK: %[[C0:.+]] = tuple.get %arg2, 0 : tuple<i8> -> i8
-// build inner tuple<i64,i8>
-// CHECK: %[[BC:.+]] = tuple.make(%[[B0]], %[[C0]] : i64, i8) : tuple<i64, i8>
 // get left element
 // CHECK: %[[A0:.+]] = tuple.get %arg0, 0 : tuple<i32> -> i32
-// now pull from the inner tuple
-// CHECK: %[[B1:.+]] = tuple.get %[[BC]], 0 : tuple<i64, i8> -> i64
-// CHECK: %[[C1:.+]] = tuple.get %[[BC]], 1 : tuple<i64, i8> -> i8
+// the inner tuple's pieces are read through its construction, which is erased
+// CHECK-NOT: tuple.get
 // final make
-// CHECK: %[[OUT:.+]] = tuple.make(%[[A0]], %[[B1]], %[[C1]] : i32, i64, i8) : tuple<i32, i64, i8>
+// CHECK: %[[OUT:.+]] = tuple.make(%[[A0]], %[[B0]], %[[C0]] : i32, i64, i8) : tuple<i32, i64, i8>
 // CHECK: return %[[OUT]] : tuple<i32, i64, i8>
 func.func @cat_nested_right(%a: tuple<i32>, %b: tuple<i64>, %c: tuple<i8>) -> tuple<i32, i64, i8> {
   %bc = tuple.cat %b, %c : tuple<i64>, tuple<i8> -> tuple<i64,i8>

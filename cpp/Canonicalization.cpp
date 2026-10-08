@@ -158,26 +158,6 @@ struct CmpOpCanonicalization : public OpRewritePattern<CmpOp> {
   }
 };
 
-struct GetOpCanonicalization : public OpRewritePattern<GetOp> {
-  using OpRewritePattern::OpRewritePattern;
-
-  LogicalResult matchAndRewrite(GetOp op,
-                                PatternRewriter& rewriter) const override {
-    // check if the input tuple came from tuple.make
-    auto makeOp = op.getTuple().getDefiningOp<MakeOp>();
-    if (!makeOp)
-      return failure();
-
-    // get the ith element
-    int64_t i = op.getIndex().getSExtValue();
-    Value element = makeOp.getElements()[i];
-
-    // replace with the ith element
-    rewriter.replaceOp(op, element);
-    return success();
-  }
-};
-
 /// tuple.make of all-constant operands becomes a tuple.constant gathering their
 /// attributes. A scalar operand contributes its scalar attribute, a nested
 /// constant tuple its array attribute, so the result mirrors the struct tree.
@@ -262,7 +242,6 @@ void populateTupleCanonicalizationPatterns(RewritePatternSet& patterns) {
     AppendOpCanonicalization,
     CatOpCanonicalization,
     CmpOpCanonicalization,
-    GetOpCanonicalization,
     MakeOpCanonicalization,
     MakeOpConstantFolding
   >(patterns.getContext());

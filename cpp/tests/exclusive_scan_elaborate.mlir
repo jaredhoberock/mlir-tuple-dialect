@@ -99,8 +99,7 @@ func.func @exclusive_scan_add_pair(%arg0: tuple<i32, i32>, %init: i32)
 // CHECK-NOT: tuple.last
 // CHECK-NOT: tuple.append
 // CHECK-NOT: !trait.poly
-// CHECK: %[[INIT:.+]] = tuple.make(%arg1 : i64) : tuple<i64>
-// CHECK: %[[M:.+]] = tuple.make({{.+}} : i64, i64, i64) : tuple<i64, i64, i64>
+// CHECK: %[[M:.+]] = tuple.make(%arg1, {{.+}} : i64, i64, i64) : tuple<i64, i64, i64>
 // CHECK: return %[[M]] : tuple<i64, i64, i64>
 !E = !trait.poly<0>
 func.func @exclusive_scan_poly_elem(%arg0: tuple<i32, f32>, %arg1: i64)

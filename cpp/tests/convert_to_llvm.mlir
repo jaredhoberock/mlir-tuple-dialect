@@ -1,15 +1,27 @@
 // RUN: mlir-opt --pass-pipeline="builtin.module(convert-tuple-to-llvm)" %s | FileCheck %s
 
 // CHECK-LABEL: func.func @make_get
-// CHECK-SAME: (%[[A:.*]]: i64, %[[B:.*]]: i64) -> i64
-func.func @make_get(%a: i64, %b: i64) -> i64 {
+// CHECK-SAME: (%[[A:.*]]: i64, %[[B:.*]]: i64, %[[T:.*]]: !llvm.struct<(i64, i64)>) -> (!llvm.struct<(i64, i64)>, i64)
+func.func @make_get(%a: i64, %b: i64, %t: tuple<i64, i64>) -> (tuple<i64, i64>, i64) {
   // CHECK: %[[UNDEF:.*]] = llvm.mlir.undef : !llvm.struct<(i64, i64)>
   // CHECK: %[[T0:.*]] = llvm.insertvalue %[[A]], %[[UNDEF]][0] : !llvm.struct<(i64, i64)>
   // CHECK: %[[T1:.*]] = llvm.insertvalue %[[B]], %[[T0]][1] : !llvm.struct<(i64, i64)>
   %tuple = tuple.make(%a, %b : i64, i64) : tuple<i64, i64>
-  // CHECK: %[[R:.*]] = llvm.extractvalue %[[T1]][0] : !llvm.struct<(i64, i64)>
+  // CHECK: %[[R:.*]] = llvm.extractvalue %[[T]][0] : !llvm.struct<(i64, i64)>
+  %result = tuple.get %t, 0 : tuple<i64, i64> -> i64
+  // CHECK: return %[[T1]], %[[R]] : !llvm.struct<(i64, i64)>, i64
+  return %tuple, %result : tuple<i64, i64>, i64
+}
+
+// A projection of a construction folds to the operand it projects before the
+// conversion lowers either op.
+// CHECK-LABEL: func.func @get_of_make
+// CHECK-SAME: (%[[A:.*]]: i64, %{{.*}}: i64) -> i64
+func.func @get_of_make(%a: i64, %b: i64) -> i64 {
+  %tuple = tuple.make(%a, %b : i64, i64) : tuple<i64, i64>
+  // CHECK-NOT: llvm.extractvalue
   %result = tuple.get %tuple, 0 : tuple<i64, i64> -> i64
-  // CHECK: return %[[R]] : i64
+  // CHECK: return %[[A]] : i64
   return %result : i64
 }
 

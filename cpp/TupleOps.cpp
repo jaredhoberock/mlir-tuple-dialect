@@ -995,13 +995,18 @@ LogicalResult GetOp::verify() {
   return success();
 }
 
-/// A tuple.get of a tuple.constant folds to the selected element attribute; the
-/// folder materializes it at the element type through that type's own dialect.
+/// A tuple.get of a construction folds to the component it constructed: of a
+/// tuple.make, the operand at the index; of a tuple.constant, the selected
+/// element attribute, which the folder materializes at the element type through
+/// that type's own dialect.
 OpFoldResult GetOp::fold(FoldAdaptor adaptor) {
+  int64_t index = getIndex().getSExtValue();
+  if (auto make = getTuple().getDefiningOp<MakeOp>())
+    return make.getElements()[index];
   auto array = dyn_cast_or_null<ArrayAttr>(adaptor.getTuple());
   if (!array)
     return {};
-  return array[getIndex().getSExtValue()];
+  return array[index];
 }
 
 

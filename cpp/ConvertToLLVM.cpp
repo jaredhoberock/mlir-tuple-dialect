@@ -3,6 +3,7 @@
 #include "ConvertToLLVM.hpp"
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
+#include <StructuralTypeConversion.hpp>
 #include <TraitTypes.hpp>
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Dialect/Func/Transforms/FuncConversions.h>
@@ -222,29 +223,7 @@ void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
       return std::nullopt;
     if (!trait::containsType<TupleType>(type))
       return std::nullopt;
-
-    SmallVector<Attribute> subAttrs;
-    SmallVector<Type> subTypes;
-    type.walkImmediateSubElements([&](Attribute attr) {
-      subAttrs.push_back(attr);
-    }, [&](Type subType) {
-      subTypes.push_back(subType);
-    });
-
-    bool changed = false;
-    SmallVector<Type> newSubTypes;
-    newSubTypes.reserve(subTypes.size());
-    for (Type subType : subTypes) {
-      Type converted = typeConverter.convertType(subType);
-      if (!converted)
-        return std::nullopt;
-      changed |= converted != subType;
-      newSubTypes.push_back(converted);
-    }
-
-    if (!changed)
-      return type;
-    return type.replaceImmediateSubElements(subAttrs, newSubTypes);
+    return lowering::rebuildFromConvertedSubElements(typeConverter, type);
   });
 
   typeConverter.addConversion([&](TupleType tupleTy) -> std::optional<Type> {

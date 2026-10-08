@@ -1,9 +1,11 @@
 // SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 // SPDX-License-Identifier: Apache-2.0
 
-// --tuple-elaborate must be a no-op on IR that already contains only the
-// tuple.make / tuple.get core. Covers several structural shapes so that a
-// stray rewrite on make/get would trip at least one case.
+// --tuple-elaborate rewrites only the higher-level tuple ops: IR that already
+// contains only the tuple.make / tuple.get core stands, except that a tuple.get
+// of a tuple.make folds to the operand it projects, the op's own fold, which
+// every greedy rewrite applies. Covers several structural shapes so that any
+// other rewrite on make/get would trip at least one case.
 
 // RUN: mlir-opt %s -split-input-file --pass-pipeline="builtin.module(tuple-elaborate)" | FileCheck %s
 
@@ -43,13 +45,13 @@ func.func @noop_get_nonzero(%t: tuple<i32, i32, i64>) -> i64 {
 }
 
 // -----
-// nested tuple inside a make, nested get back out
+// nested tuple inside a make, projected back out: the get folds to the inner
+// make, and the outer make, left unused, is erased
 
 // CHECK-LABEL: func.func @noop_nested
 // CHECK: %[[INNER:.+]] = tuple.make(%arg0, %arg1 : i32, i32) : tuple<i32, i32>
-// CHECK: %[[OUTER:.+]] = tuple.make(%[[INNER]], %arg2 : tuple<i32, i32>, i64) : tuple<tuple<i32, i32>, i64>
-// CHECK: %[[G:.+]] = tuple.get %[[OUTER]], 0 : tuple<tuple<i32, i32>, i64> -> tuple<i32, i32>
-// CHECK: return %[[G]] : tuple<i32, i32>
+// CHECK-NOT: tuple.
+// CHECK: return %[[INNER]] : tuple<i32, i32>
 func.func @noop_nested(%a: i32, %b: i32, %c: i64) -> tuple<i32, i32> {
   %inner = tuple.make(%a, %b : i32, i32) : tuple<i32, i32>
   %outer = tuple.make(%inner, %c : tuple<i32, i32>, i64) : tuple<tuple<i32, i32>, i64>
@@ -69,13 +71,12 @@ func.func @noop_multi_element(%a: i32, %b: i64) -> tuple<i32, i32, i64> {
 }
 
 // -----
-// a make result with multiple uses — must not be folded or duplicated
+// a make result with multiple uses: each get folds to the operand it projects,
+// nothing is duplicated, and the make, left unused, is erased
 
 // CHECK-LABEL: func.func @noop_multi_use
-// CHECK: %[[M:.+]] = tuple.make(%arg0, %arg1 : i32, i32) : tuple<i32, i32>
-// CHECK: %[[G0:.+]] = tuple.get %[[M]], 0 : tuple<i32, i32> -> i32
-// CHECK: %[[G1:.+]] = tuple.get %[[M]], 1 : tuple<i32, i32> -> i32
-// CHECK: %[[S:.+]] = arith.addi %[[G0]], %[[G1]] : i32
+// CHECK-NOT: tuple.
+// CHECK: %[[S:.+]] = arith.addi %arg0, %arg1 : i32
 // CHECK: return %[[S]] : i32
 func.func @noop_multi_use(%a: i32, %b: i32) -> i32 {
   %m = tuple.make(%a, %b : i32, i32) : tuple<i32, i32>

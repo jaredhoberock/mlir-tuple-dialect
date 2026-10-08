@@ -80,10 +80,9 @@ func.func @drop_last_preserves_empty(%a : tuple<tuple<>, i32>) -> tuple<tuple<>>
 // CHECK-LABEL: func.func @drop_last_chained
 // CHECK-NOT: tuple.drop_last
 // CHECK: %[[G0:.+]] = tuple.get %arg0, 0 : tuple<i32, i64, i8> -> i32
-// CHECK: %[[G1:.+]] = tuple.get %arg0, 1 : tuple<i32, i64, i8> -> i64
-// CHECK: %[[M0:.+]] = tuple.make(%[[G0]], %[[G1]] : i32, i64) : tuple<i32, i64>
-// CHECK: %[[G2:.+]] = tuple.get %[[M0]], 0 : tuple<i32, i64> -> i32
-// CHECK: %[[M1:.+]] = tuple.make(%[[G2]] : i32) : tuple<i32>
+// the second drop reads the first one's construction, which is erased
+// CHECK-NOT: tuple.get
+// CHECK: %[[M1:.+]] = tuple.make(%[[G0]] : i32) : tuple<i32>
 // CHECK: return %[[M1]] : tuple<i32>
 func.func @drop_last_chained(%a : tuple<i32, i64, i8>) -> tuple<i32> {
   %r1 = tuple.drop_last %a : tuple<i32, i64, i8> -> tuple<i32, i64>
