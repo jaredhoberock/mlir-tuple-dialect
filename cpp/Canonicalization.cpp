@@ -162,8 +162,9 @@ struct CmpOpCanonicalization : public OpRewritePattern<CmpOp> {
 /// attributes. A scalar operand contributes its scalar attribute, a nested
 /// constant tuple its array attribute, so the result mirrors the struct tree.
 ///
-/// A canonicalization pattern, so it runs only under the canonicalizer, leaving
-/// the make/get core the tuple-elaborate pass must not rewrite.
+/// A canonicalization pattern rather than a fold, so only canonicalization
+/// turns a construction into a constant: the folds every greedy rewrite applies,
+/// tuple-elaborate's among them, leave the construction standing.
 struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
   using OpRewritePattern::OpRewritePattern;
 
