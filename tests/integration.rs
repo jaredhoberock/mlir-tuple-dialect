@@ -52,11 +52,11 @@ fn append_partial_ord_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialOrd(%claim: !trait.claim<@PartialOrd[!trait.poly<2>, !trait.poly<3>]>) {
-      trait.method @lt(!trait.poly<2>, !trait.poly<3>) -> i1
-      trait.method @le(!trait.poly<2>, !trait.poly<3>) -> i1
-      trait.method @gt(!trait.poly<2>, !trait.poly<3>) -> i1
-      trait.method @ge(!trait.poly<2>, !trait.poly<3>) -> i1
+    trait.trait private @PartialOrd(%claim: !trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>) {
+      trait.method @lt(!trait.poly<0>, !trait.poly<1>) -> i1
+      trait.method @le(!trait.poly<0>, !trait.poly<1>) -> i1
+      trait.method @gt(!trait.poly<0>, !trait.poly<1>) -> i1
+      trait.method @ge(!trait.poly<0>, !trait.poly<1>) -> i1
     }
     "#;
 
