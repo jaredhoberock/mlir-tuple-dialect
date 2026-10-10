@@ -41,14 +41,16 @@ static FailureOr<trait::SpecializationMap> matchBodyPositions(
   assert(formals.size() == actuals.size() &&
          "every formal position stands opposite one actual");
 
-  trait::TypeArguments args(trait::getTypeParametersIn(Type(bodyTy)));
+  trait::TypeArguments args(trait::getLabelBound(Type(bodyTy)));
   for (auto [formal, actual] : llvm::zip(formals, actuals))
     if (actual)
       trait::extractTypeArguments(formal, actual, args);
 
   trait::SpecializationMap arguments;
-  for (trait::GenericTypeInterface parameter : args.getParameters()) {
-    std::optional<Type> argument = args.lookup(parameter);
+  for (unsigned label : llvm::seq(args.getBound())) {
+    auto parameter = cast<trait::GenericTypeInterface>(
+        Type(trait::PolyType::get(bodyTy.getContext(), label)));
+    std::optional<Type> argument = args.at(label);
     if (argument && trait::getParameterOccurrence(*argument) != parameter)
       arguments.bind(parameter, *argument);
   }
@@ -123,13 +125,14 @@ static LogicalResult verifyTupleStructuralDowncast(
   }
 
   auto structuralPoly = PolyType::get(op->getContext(), claimPoly);
-  llvm::DenseMap<Type, Type> substitution;
-  substitution[claimPoly] = structuralPoly;
+  trait::SpecializationMap substitution;
+  substitution.bind(cast<trait::GenericTypeInterface>(Type(claimPoly)),
+                    structuralPoly);
 
   // The downcast may only replace the exact polymorphic type named by the
   // claim. If the value type does not contain it, the claim proves nothing
   // about this value.
-  Type expected = trait::applySubstitutionOnce(substitution, valueTy);
+  Type expected = substitution.apply(valueTy);
   if (expected == valueTy) {
     errFn() << "value type does not contain the claimed tuple-polymorphic type";
     return failure();
@@ -657,7 +660,7 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   // them: the parameters the formal spells -- among them the placeholders minted
   // above for a side whose elements this op cannot name -- take what the operand
   // spells opposite them, and the operand's spelling is rigid.
-  if (failed(trait::matchDeclaration(trait::getTypeParametersIn(formalClaimsTy),
+  if (failed(trait::matchDeclaration(trait::getLabelBound(formalClaimsTy),
                                      formalClaimsTy, claims.getType(),
                                      /*normalize=*/nullptr, errFn)))
     return failure();

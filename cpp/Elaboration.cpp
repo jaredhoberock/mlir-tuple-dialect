@@ -577,7 +577,7 @@ struct FoldlOpLowering : public OpRewritePattern<FoldlOp> {
 
       // instantiate the body into a temporary Region
       Region bodyInstance;
-      trait::specializePolymorphicRegion(rewriter, body, bodyInstance, subst.toTypeMap());
+      trait::specializePolymorphicRegion(rewriter, body, bodyInstance, subst);
 
       // get the block to inline
       Block* block = &bodyInstance.front();
@@ -671,7 +671,7 @@ static FailureOr<Value> instantiateElementalTupleOpIteration(
 
   // instantiate body into temporary region
   Region bodyInstance;
-  trait::specializePolymorphicRegion(rewriter, body, bodyInstance, subst->toTypeMap());
+  trait::specializePolymorphicRegion(rewriter, body, bodyInstance, *subst);
 
   Block *block = &bodyInstance.front();
   auto yieldOp = cast<YieldOp>(block->getTerminator());
