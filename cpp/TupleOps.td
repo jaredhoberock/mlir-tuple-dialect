@@ -449,12 +449,15 @@ def FoldlOp : TupleOp<"foldl", [
   let hasVerifier = 1;
 }
 
-def GetOp : TupleOp<"get", [Pure]> {
+def GetOp : TupleOp<"get", [
+  Pure,
+  DeclareOpInterfaceMethods<InferTypeOpInterface, ["refineReturnTypes"]>
+]> {
   let summary = "Extract an element from a tuple";
   let description = [{
     `tuple.get` extracts the element at the given index from the input
-    `tuple`. The index must be an integer attribute, and the result type
-    must match the type of the element at that index.
+    `tuple`. The index must be an integer attribute, and the result type is
+    the type of the element at that index.
   }];
 
   let arguments = (ins ConcreteTuple:$tuple, IndexAttr:$index);

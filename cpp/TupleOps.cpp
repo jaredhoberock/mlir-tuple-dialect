@@ -987,15 +987,31 @@ LogicalResult GetOp::verify() {
                          << elementTypes.size();
   }
 
-  // check that the result type matches the element type
-  Type expectedTy = elementTypes[index];
-  if (getResult().getType() != expectedTy) {
-    return emitOpError() << "result type " << getResult().getType()
-                         << " does not match tuple element type " << expectedTy
-                         << " at index " << index;
-  }
-
   return success();
+}
+
+LogicalResult GetOp::inferReturnTypes(
+    MLIRContext *, std::optional<Location>, ValueRange operands,
+    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &inferredReturnTypes) {
+  // The result is the element at the index, so a verified get is its
+  // element's type. An index the tuple does not have determines nothing;
+  // verification names it.
+  auto tupleTy = dyn_cast<TupleType>(operands[0].getType());
+  Adaptor adaptor(operands, attributes, properties, regions);
+  int64_t index = adaptor.getIndex().getSExtValue();
+  if (!tupleTy || index < 0 || index >= int64_t(tupleTy.size()))
+    return failure();
+  inferredReturnTypes.push_back(tupleTy.getType(index));
+  return success();
+}
+
+LogicalResult GetOp::refineReturnTypes(
+    MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
+    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    SmallVectorImpl<Type> &returnTypes) {
+  return trait::refineUnlessUnmintable<GetOp>(ctx, location, operands, attrs,
+                                             properties, regions, returnTypes);
 }
 
 /// A tuple.get of a construction folds to the component it constructed: of a
