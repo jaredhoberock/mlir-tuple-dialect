@@ -31,12 +31,12 @@ trait.impl private @PartialEq_f64(%self_claim: !trait.claim<@PartialEq[f64, f64]
 
 !MS = !trait.poly<2>
 !MO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!MS, !MO]>) attributes {
+trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
   trait.assoc_type @Claims
-  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
+  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 }
 
 func.func @claims_of_a_singleton()
@@ -82,12 +82,12 @@ trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]
 
 !MS = !trait.poly<2>
 !MO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!MS, !MO]>) attributes {
+trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
   trait.assoc_type @Claims
-  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!MS,!MO], "Claims">
+  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 }
 
 func.func @claims_of_tuples_of_unequal_arity()

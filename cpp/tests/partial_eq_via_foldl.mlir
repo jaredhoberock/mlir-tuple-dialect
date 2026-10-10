@@ -32,27 +32,27 @@ trait.impl private @PartialEq_f64(%self_claim: !trait.claim<@PartialEq[f64, f64]
 // binds the tuple of their claims as its @Claims associated type
 !MapPartialEqS = !trait.poly<2>
 !MapPartialEqO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!MapPartialEqS, !MapPartialEqO]>) attributes {
+trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
 } {
   trait.assoc_type @Claims
   trait.method @claims()
-    -> !trait.proj<@tuple.MapPartialEq[!MapPartialEqS,!MapPartialEqO], "Claims">
+    -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 }
 
 // this is the polymorphic tuple impl of PartialEq
 !TS = !tuple.poly<5>
 !TO = !tuple.poly<6>
-trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!TS, !TO]>, %mapped: !trait.claim<@tuple.MapPartialEq[!TS,!TO]>) {
-  trait.method @eq(%self: !TS, %other: !TO) -> i1 {
+trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!tuple.poly<0>, !tuple.poly<1>]>, %mapped: !trait.claim<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>]>) {
+  trait.method @eq(%self: !tuple.poly<0>, %other: !tuple.poly<1>) -> i1 {
     // first get a tuple of elementwise @PartialEq claims
-    %claims = trait.method.call %mapped @tuple.MapPartialEq[!TS,!TO]::@claims()
-      : () -> !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
+    %claims = trait.method.call %mapped @tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>]::@claims()
+      : () -> !trait.proj<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>], "Claims">
 
     // fold @PartialEq::@eq over the tuples
     %res = tuple.cmp eq @PartialEq, %self, %other, %claims
-      : !TS, !TO, !trait.proj<@tuple.MapPartialEq[!TS,!TO], "Claims">
+      : !tuple.poly<0>, !tuple.poly<1>, !trait.proj<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>], "Claims">
     trait.return %res : i1
   }
 }
