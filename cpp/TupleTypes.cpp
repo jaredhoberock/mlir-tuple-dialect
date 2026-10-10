@@ -3,15 +3,11 @@
 #include "Tuple.hpp"
 #include "TupleTypes.hpp"
 #include <atomic>
+#include <InterfaceLLVMTypeConverter.hpp>
 #include <llvm/ADT/TypeSwitch.h>
-#include <llvm/Support/ErrorHandling.h>
-#include <llvm/Support/raw_ostream.h>
-#include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
-#include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/Interfaces/DataLayoutInterfaces.h>
-#include <mlir/Transforms/DialectConversion.h>
 #include <TraitOps.hpp>
 #include <TraitTypes.hpp>
 
@@ -35,52 +31,17 @@ void TupleDialect::registerTypes() {
 
 namespace {
 
-/// The LLVM struct a tuple lowers to, recovered through the lowering's own type
-/// conversion. The converter is populated from every loaded dialect's
-/// ConvertToLLVMPatternInterface, the population upstream's convert-to-llvm
-/// performs in its normal mode, so a nested type converts exactly as the
-/// lowering converts it: a nested tuple through the tuple mapping, and any other
-/// element -- a sum, say -- through its own dialect's conversion. The target and
-/// pattern set are throwaway; only the type conversions the interfaces add to
-/// the converter are consulted.
-///
-/// The converter loads the LLVM dialect as it is built. A tuple's layout is
-/// only queried once its IR is on the way to LLVM, where that dialect is
-/// already loaded, so the build never first-loads a dialect mid-pass.
-///
-/// A tuple holding an element no loaded dialect lowers has no LLVM struct and
-/// so no layout. That stops compilation with a fatal error naming the tuple, as
-/// the data layout itself stops on a type that provides no layout, instead of
-/// handing a null type to the layout query.
-static Type loweredStruct(Type type) {
-  MLIRContext *ctx = type.getContext();
-  LLVMTypeConverter converter(ctx);
-  ConversionTarget throwawayTarget(*ctx);
-  RewritePatternSet throwawayPatterns(ctx);
-  for (Dialect *dialect : ctx->getLoadedDialects())
-    if (auto *iface = dyn_cast<ConvertToLLVMPatternInterface>(dialect))
-      iface->populateConvertToLLVMConversionPatterns(throwawayTarget, converter,
-                                                     throwawayPatterns);
-
-  Type lowered = converter.convertType(type);
-  if (!lowered) {
-    std::string message;
-    llvm::raw_string_ostream os(message);
-    os << "no loaded dialect lowers every element of " << type
-       << " to LLVM, so the tuple has no data layout";
-    llvm::report_fatal_error(llvm::Twine(message));
-  }
-  return lowered;
-}
-
 /// Answers size and alignment queries for the builtin tuple type.
 ///
 /// A tuple carries no layout of its own; it lowers to an LLVM literal struct,
 /// so every query forwards to the data layout over that struct. The struct
-/// comes from the lowering's own type conversion [loweredStruct], so the layout
-/// a tuple reports is the layout of the exact struct it lowers to -- nested
-/// tuples, elements of other dialects, and the empty tuple's i8 included,
-/// because every loaded dialect's conversion takes part, as in the lowering.
+/// comes from the lowering's own type conversion
+/// [lowering::loweredForDataLayout], so the layout a tuple reports is the layout
+/// of the exact struct it lowers to -- nested tuples, elements of other
+/// dialects, and the empty tuple's i8 included, because every loaded dialect's
+/// conversion takes part, as in the lowering. A tuple holding an element no
+/// loaded dialect lowers has no struct and stops compilation with a fatal error
+/// naming it.
 ///
 /// A builtin type carries no baked-in layout methods, so this model provides
 /// every query directly rather than relying on the interface's defaults, which
@@ -89,22 +50,26 @@ struct TupleDataLayout
     : public DataLayoutTypeInterface::ExternalModel<TupleDataLayout, TupleType> {
   llvm::TypeSize getTypeSizeInBits(Type type, const DataLayout& dataLayout,
                                    DataLayoutEntryListRef) const {
-    return dataLayout.getTypeSizeInBits(loweredStruct(type));
+    return dataLayout.getTypeSizeInBits(
+        lowering::loweredForDataLayout(type, dataLayout));
   }
 
   llvm::TypeSize getTypeSize(Type type, const DataLayout& dataLayout,
                              DataLayoutEntryListRef) const {
-    return dataLayout.getTypeSize(loweredStruct(type));
+    return dataLayout.getTypeSize(
+        lowering::loweredForDataLayout(type, dataLayout));
   }
 
   uint64_t getABIAlignment(Type type, const DataLayout& dataLayout,
                            DataLayoutEntryListRef) const {
-    return dataLayout.getTypeABIAlignment(loweredStruct(type));
+    return dataLayout.getTypeABIAlignment(
+        lowering::loweredForDataLayout(type, dataLayout));
   }
 
   uint64_t getPreferredAlignment(Type type, const DataLayout& dataLayout,
                                  DataLayoutEntryListRef) const {
-    return dataLayout.getTypePreferredAlignment(loweredStruct(type));
+    return dataLayout.getTypePreferredAlignment(
+        lowering::loweredForDataLayout(type, dataLayout));
   }
 };
 
