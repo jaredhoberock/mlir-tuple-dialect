@@ -16,8 +16,11 @@ def TupleDialect : Dialect {
     void registerTypes();
   }];
 
+  // a tuple's data-layout model measures the LLVM struct the tuple lowers to,
+  // so the LLVM dialect loads with the tuple dialect rather than inside a query
   let dependentDialects = [
     "mlir::arith::ArithDialect",
+    "mlir::LLVM::LLVMDialect",
     "mlir::trait::TraitDialect"
   ];
 
