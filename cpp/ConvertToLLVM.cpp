@@ -200,9 +200,10 @@ struct ConvertAnyOpWithTupleTypes : public ConversionPattern {
 
 /// Adds only tuple-owned type conversions. TupleType lowers to an LLVM literal
 /// struct; other structural types are rebuilt only when they contain TupleType.
-/// This is the sole definition of the tuple->struct mapping -- the data-layout
-/// model reuses it, so a tuple's layout answers agree with its lowering.
-void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
+/// This is the sole definition of the tuple->struct mapping. The data-layout
+/// model reaches it through the dialect's ConvertToLLVM interface, as the
+/// lowering does, so a tuple's layout answers agree with its lowering.
+static void populateTupleToLLVMTypeConversions(LLVMTypeConverter &typeConverter) {
   typeConverter.addConversion([&](Type type) -> std::optional<Type> {
     if (isa<TupleType>(type))
       return std::nullopt;
