@@ -6,6 +6,7 @@
 #include "Monomorphization.hpp"
 #include "PermissiveInlinerInterface.hpp"
 #include "Tuple.hpp"
+#include "TupleLeafConversion.hpp"
 #include "TupleOps.hpp"
 #include <llvm/ADT/STLExtras.h>
 #include <iostream>
@@ -17,6 +18,7 @@
 #include <mlir/IR/OpImplementation.h>
 #include <mlir/Transforms/InliningUtils.h>
 #include <ConstantValue.hpp>
+#include <LeafConversion.hpp>
 #include <Trait.hpp>
 
 #include <Tuple.cpp.inc>
@@ -47,6 +49,15 @@ struct MonomorphizationInterface : public trait::MonomorphizationInterface {
   }
 };
 
+struct LeafConversionInterface : public lowering::LeafConversionInterface {
+  using lowering::LeafConversionInterface::LeafConversionInterface;
+
+  void populateLeafConversion(ConversionTarget &target, TypeConverter &converter,
+                              RewritePatternSet &patterns) const override final {
+    populateTupleLeafConversion(target, converter, patterns);
+  }
+};
+
 struct GenerateImplsInterface : public trait::GenerateImplsInterface {
   using trait::GenerateImplsInterface::GenerateImplsInterface;
 
@@ -67,6 +78,7 @@ void TupleDialect::initialize() {
   addInterfaces<
     ConvertToLLVMInterface,
     GenerateImplsInterface,
+    LeafConversionInterface,
     MonomorphizationInterface,
     lowering::PermissiveInlinerInterface<TupleDialect>
   >();

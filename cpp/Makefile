@@ -20,7 +20,7 @@ CXX := clang++
 CXXFLAGS := -Wall -Werror -fPIC $(shell $(LLVM_CONFIG) --cxxflags) -O2
 INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(TRAIT_DIALECT_SOURCE_DIR) -I$(TRAIT_DIALECT_INCLUDE_DIR) -I$(LOWERING_DRIVER_SOURCE_DIR)
 
-DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleOps.cpp TupleTypes.cpp
+DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleLeafConversion.cpp TupleOps.cpp TupleTypes.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
 PLUGIN_OBJECTS := $(DIALECT_OBJECTS) $(BUILD_DIR)/Plugin.o
 DEPS := $(PLUGIN_OBJECTS:.o=.d)
