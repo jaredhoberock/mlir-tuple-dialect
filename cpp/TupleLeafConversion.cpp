@@ -13,34 +13,22 @@ void populateTupleLeafConversion(ConversionTarget &, TypeConverter &converter,
   converter.addConversion(
       [&converter](TupleType type, SmallVectorImpl<Type> &leaves)
           -> std::optional<LogicalResult> {
-        for (Type element : type.getTypes())
-          if (failed(converter.convertType(element, leaves)))
-            return failure();
+        // A refusal leaves `leaves` as it found them, the converter's contract.
+        SmallVector<Type> elementLeaves;
+        if (failed(converter.convertTypes(type.getTypes(), elementLeaves)))
+          return failure();
+        llvm::append_range(leaves, elementLeaves);
         return success();
       });
 
-  // Each element takes as many leaves as it converts to, in order, so the
-  // leaves are consumed front to back and must be used up exactly.
   converter.addSourceMaterialization(
       [&converter](OpBuilder &builder, TupleType type, ValueRange leaves,
                    Location loc) -> Value {
-        SmallVector<Value> elements;
-        for (Type element : type.getTypes()) {
-          SmallVector<Type> elementLeaves;
-          if (failed(converter.convertType(element, elementLeaves)) ||
-              elementLeaves.size() > leaves.size())
-            return Value();
-          Value rebuilt = lowering::valueFromLeaves(
-              converter, builder, loc, element,
-              leaves.take_front(elementLeaves.size()));
-          if (!rebuilt)
-            return Value();
-          elements.push_back(rebuilt);
-          leaves = leaves.drop_front(elementLeaves.size());
-        }
-        if (!leaves.empty())
+        FailureOr<SmallVector<Value>> elements = lowering::valuesFromLeaves(
+            converter, builder, loc, type.getTypes(), leaves);
+        if (failed(elements))
           return Value();
-        return MakeOp::create(builder, loc, type, elements);
+        return MakeOp::create(builder, loc, type, *elements);
       });
 
   converter.addTargetMaterialization(
