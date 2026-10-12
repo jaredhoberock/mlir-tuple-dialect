@@ -8,8 +8,7 @@
 
 namespace mlir::tuple {
 
-void populateTupleLeafConversion(ConversionTarget &, TypeConverter &converter,
-                                 RewritePatternSet &) {
+void populateTupleLeafTypes(TypeConverter &converter) {
   converter.addConversion(
       [&converter](TupleType type, SmallVectorImpl<Type> &leaves)
           -> std::optional<LogicalResult> {

@@ -4,8 +4,6 @@
 
 namespace mlir {
 
-class ConversionTarget;
-class RewritePatternSet;
 class TypeConverter;
 
 namespace tuple {
@@ -16,9 +14,7 @@ namespace tuple {
 /// packs them with `tuple.make`, and its target materialization reads each
 /// element with `tuple.get` and takes it apart in turn. Elements convert and
 /// materialize through `converter`, whatever dialect owns them.
-void populateTupleLeafConversion(ConversionTarget &target,
-                                 TypeConverter &converter,
-                                 RewritePatternSet &patterns);
+void populateTupleLeafTypes(TypeConverter &converter);
 
 } // namespace tuple
 } // namespace mlir

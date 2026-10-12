@@ -52,9 +52,8 @@ struct MonomorphizationInterface : public trait::MonomorphizationInterface {
 struct LeafConversionInterface : public lowering::LeafConversionInterface {
   using lowering::LeafConversionInterface::LeafConversionInterface;
 
-  void populateLeafConversion(ConversionTarget &target, TypeConverter &converter,
-                              RewritePatternSet &patterns) const override final {
-    populateTupleLeafConversion(target, converter, patterns);
+  void populateLeafTypes(TypeConverter &converter) const override final {
+    populateTupleLeafTypes(converter);
   }
 };
 
