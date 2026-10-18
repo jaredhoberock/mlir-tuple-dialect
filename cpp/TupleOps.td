@@ -532,7 +532,8 @@ def ConstantOp : TupleOp<"constant", [
     attribute per tuple element, in order: a typed scalar attribute for a scalar
     element, its type the element's; and a nested array attribute for a nested
     tuple, recursively. The value mirrors the struct tree the tuple lowers to,
-    the shape an LLVM struct constant takes.
+    the shape an LLVM struct constant takes. No element is poison: a tuple with
+    a poison component is a `tuple.make` of it.
 
     Example:
         %c = tuple.constant([1 : i64, 2 : i64]) : tuple<i64, i64>
@@ -545,6 +546,12 @@ def ConstantOp : TupleOp<"constant", [
 
   let hasVerifier = 1;
   let hasFolder = 1;
+
+  let extraClassDeclaration = [{
+    /// Whether a `tuple.constant` of `type` holding `value` verifies: the one
+    /// test of what the op represents, which its verifier applies.
+    static bool isBuildableWith(Attribute value, Type type);
+  }];
 }
 
 def MapOp : TupleOp<"map", [

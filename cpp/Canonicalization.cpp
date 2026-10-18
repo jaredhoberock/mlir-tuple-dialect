@@ -4,6 +4,7 @@
 #include "Tuple.hpp"
 #include "TupleOps.hpp"
 #include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/UB/IR/UBOps.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/Matchers.h>
 #include <mlir/IR/PatternMatch.h>
@@ -158,9 +159,13 @@ struct CmpOpCanonicalization : public OpRewritePattern<CmpOp> {
   }
 };
 
-/// tuple.make of all-constant operands becomes a tuple.constant gathering their
-/// attributes. A scalar operand contributes its scalar attribute, a nested
-/// constant tuple its array attribute, so the result mirrors the struct tree.
+/// tuple.make of all-constant operands becomes the constant they make. Every
+/// operand poison, it is poison of the tuple, as a tuple.get of poison is poison
+/// of the element. Otherwise it is a tuple.constant gathering their attributes,
+/// a scalar operand contributing its scalar attribute and a nested constant
+/// tuple its array attribute, so the result mirrors the struct tree; a gathered
+/// value no tuple.constant holds (ConstantOp::isBuildableWith), as when some
+/// operands are poison and others are not, leaves the construction standing.
 ///
 /// A canonicalization pattern rather than a fold, so only canonicalization
 /// turns a construction into a constant: the folds every greedy rewrite applies,
@@ -183,8 +188,19 @@ struct MakeOpConstantFolding : public OpRewritePattern<MakeOp> {
       elements.push_back(attr);
     }
 
-    rewriter.replaceOpWithNewOp<ConstantOp>(op, tupleTy,
-                                            rewriter.getArrayAttr(elements));
+    // The unit tuple has no component to be poison: it is the defined value its
+    // constant holds.
+    if (!elements.empty() &&
+        llvm::all_of(elements, llvm::IsaPred<ub::PoisonAttr>)) {
+      rewriter.replaceOpWithNewOp<ub::PoisonOp>(op, tupleTy);
+      return success();
+    }
+
+    ArrayAttr value = rewriter.getArrayAttr(elements);
+    if (!ConstantOp::isBuildableWith(value, tupleTy))
+      return rewriter.notifyMatchFailure(
+          op, "the operands' constants are no value a tuple.constant holds");
+    rewriter.replaceOpWithNewOp<ConstantOp>(op, tupleTy, value);
     return success();
   }
 };

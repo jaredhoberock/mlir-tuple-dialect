@@ -1756,14 +1756,21 @@ LogicalResult MakeOp::refineReturnTypes(
 //===----------------------------------------------------------------------===//
 
 /// Checks that `value` describes a constant of the tuple `type`, its scalar and
-/// tuple leaves through the shared shape check. A leaf of any other type -- a
-/// nominal wrapper, an LLVM struct -- carries that type's own constant attribute,
-/// which this local check, with no symbol table, leaves to that type's constant op.
+/// tuple leaves through the shared shape check, which refuses a poison element
+/// at every position. A leaf of any other type -- a nominal wrapper, an LLVM
+/// struct -- carries that type's own constant attribute, which this local check,
+/// with no symbol table, leaves to that type's constant op. A null `errFn`
+/// checks without reporting.
 static LogicalResult
 verifyConstantValue(Attribute value, Type type,
                     llvm::function_ref<InFlightDiagnostic()> errFn) {
   auto leafHook = [&](Attribute, Type) -> LogicalResult { return success(); };
   return lowering::verifyConstantShape(value, type, errFn, leafHook);
+}
+
+bool ConstantOp::isBuildableWith(Attribute value, Type type) {
+  return isa<TupleType>(type) &&
+         succeeded(verifyConstantValue(value, type, /*errFn=*/nullptr));
 }
 
 LogicalResult ConstantOp::verify() {

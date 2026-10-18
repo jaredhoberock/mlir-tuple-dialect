@@ -90,20 +90,20 @@ void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) cons
 
 /// Answers a decoded value with the constant op that stands for it: a poison
 /// value, of any type, is its attribute's own dialect's (upstream's `ub.poison`);
-/// a tuple type with a matching-arity array attribute is a `tuple.constant`;
-/// every other type is a leaf this dialect owns no constant op for. A leaf hook:
-/// a tuple-owned type that is not a `TupleType` answers null, as does each arity
-/// mismatch, leaving the value unmaterialized.
+/// a tuple type with a value a `tuple.constant` holds
+/// (ConstantOp::isBuildableWith) is a `tuple.constant`; every other type is a
+/// leaf this dialect owns no constant op for. A leaf hook: a tuple-owned type
+/// that is not a `TupleType` answers null, as does a value no `tuple.constant`
+/// holds, leaving the value unmaterialized.
 Operation *TupleDialect::materializeConstant(OpBuilder &builder,
                                              Attribute value, Type type,
                                              Location loc) {
   if (isa<ub::PoisonAttrInterface>(value))
     return value.getDialect().materializeConstant(builder, value, type, loc);
   if (auto tupleTy = dyn_cast<TupleType>(type)) {
-    auto array = dyn_cast<ArrayAttr>(value);
-    if (!array || array.size() != tupleTy.size())
+    if (!ConstantOp::isBuildableWith(value, tupleTy))
       return nullptr;
-    return ConstantOp::create(builder, loc, tupleTy, array);
+    return ConstantOp::create(builder, loc, tupleTy, cast<ArrayAttr>(value));
   }
   return lowering::materializeConstantAsLeaf(this, builder, value, type, loc);
 }

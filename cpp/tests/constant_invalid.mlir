@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The verifier carries the leaf cross-check: the value's arity must be the
-// tuple's, and each scalar leaf attribute's type must be the element's.
+// tuple's, each scalar leaf attribute's type must be the element's, and no
+// element is poison, at a leaf of any type.
 
 // RUN: mlir-opt %s -split-input-file -verify-diagnostics
 
@@ -26,4 +27,12 @@ func.func @nested_element_not_array() -> tuple<tuple<i64>> {
   // expected-error@+1 {{tuple constant requires an array attribute}}
   %c = tuple.constant([1 : i64]) : tuple<tuple<i64>>
   return %c : tuple<tuple<i64>>
+}
+
+// -----
+
+func.func @poison_element() -> tuple<memref<?xf32>, i64> {
+  // expected-error@+1 {{constant attribute #ub.poison is poison, which no constant of type 'memref<?xf32>' holds}}
+  %c = tuple.constant([#ub.poison, 1 : i64]) : tuple<memref<?xf32>, i64>
+  return %c : tuple<memref<?xf32>, i64>
 }
