@@ -5,6 +5,7 @@
 #include "TupleTypes.hpp"
 #include <ConstantValue.hpp>
 #include <iostream>
+#include <mlir/Dialect/UB/IR/UBOps.h>
 #include <mlir/IR/Builders.h>
 #include <TraitTypes.hpp>
 
@@ -1017,11 +1018,14 @@ LogicalResult GetOp::refineReturnTypes(
 /// A tuple.get of a construction folds to the component it constructed: of a
 /// tuple.make, the operand at the index; of a tuple.constant, the selected
 /// element attribute, which the folder materializes at the element type through
-/// that type's own dialect.
+/// that type's own dialect. A tuple.get of poison folds to poison of the
+/// element's type, since a poison tuple has no component that is not poison.
 OpFoldResult GetOp::fold(FoldAdaptor adaptor) {
   int64_t index = getIndex().getSExtValue();
   if (auto make = getTuple().getDefiningOp<MakeOp>())
     return make.getElements()[index];
+  if (isa_and_nonnull<ub::PoisonAttrInterface>(adaptor.getTuple()))
+    return adaptor.getTuple();
   auto array = dyn_cast_or_null<ArrayAttr>(adaptor.getTuple());
   if (!array)
     return {};

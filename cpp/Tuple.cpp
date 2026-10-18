@@ -13,6 +13,7 @@
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/UB/IR/UBOps.h>
 #include <mlir/Dialect/Vector/IR/VectorOps.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
@@ -87,14 +88,17 @@ void TupleDialect::getCanonicalizationPatterns(RewritePatternSet& patterns) cons
   populateTupleCanonicalizationPatterns(patterns);
 }
 
-/// Answers a decoded value with the constant op that stands for it: a tuple type
-/// with a matching-arity array attribute is a `tuple.constant`; every other type
-/// is a leaf this dialect owns no constant op for. A leaf hook: a tuple-owned type
-/// that is not a `TupleType` answers null, as does each arity mismatch, leaving
-/// the value unmaterialized.
+/// Answers a decoded value with the constant op that stands for it: a poison
+/// value, of any type, is its attribute's own dialect's (upstream's `ub.poison`);
+/// a tuple type with a matching-arity array attribute is a `tuple.constant`;
+/// every other type is a leaf this dialect owns no constant op for. A leaf hook:
+/// a tuple-owned type that is not a `TupleType` answers null, as does each arity
+/// mismatch, leaving the value unmaterialized.
 Operation *TupleDialect::materializeConstant(OpBuilder &builder,
                                              Attribute value, Type type,
                                              Location loc) {
+  if (isa<ub::PoisonAttrInterface>(value))
+    return value.getDialect().materializeConstant(builder, value, type, loc);
   if (auto tupleTy = dyn_cast<TupleType>(type)) {
     auto array = dyn_cast<ArrayAttr>(value);
     if (!array || array.size() != tupleTy.size())
