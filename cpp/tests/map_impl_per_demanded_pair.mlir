@@ -90,6 +90,7 @@ trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[
   trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 }
 
+// expected-error @+1 {{unresolved projection '!trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32, f64>], "Claims">' after instantiate-monomorphs}}
 func.func @claims_of_tuples_of_unequal_arity()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32,f64>], "Claims"> {
   // expected-error @+2 {{no impl with satisfiable assumptions}}
