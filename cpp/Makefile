@@ -1,8 +1,8 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES.
 # SPDX-License-Identifier: Apache-2.0
 
-ifndef MLIR_SYS_220_PREFIX
-$(error MLIR_SYS_220_PREFIX must be set; point it at your LLVM/MLIR 22 install)
+ifndef MLIR_SYS_230_PREFIX
+$(error MLIR_SYS_230_PREFIX must be set; point it at your LLVM/MLIR 23 install)
 endif
 
 BUILD_DIR := build
@@ -10,7 +10,7 @@ TRAIT_DIALECT_SOURCE_DIR := ../../mlir-trait-dialect/cpp
 TRAIT_DIALECT_INCLUDE_DIR := ../../mlir-trait-dialect/cpp/build
 # The lowering driver's header-only shared inliner interface.
 LOWERING_DRIVER_SOURCE_DIR := ../../mlir-lowering-driver/cpp
-LLVM_BIN_PATH := $(MLIR_SYS_220_PREFIX)/bin
+LLVM_BIN_PATH := $(MLIR_SYS_230_PREFIX)/bin
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
 
@@ -18,7 +18,7 @@ CXX := clang++
 # The install's llvm-config reports no optimization level; set -O2 as the
 # default here. Asserts stay on (no -DNDEBUG) -- the dialect verifiers are product.
 CXXFLAGS := -Wall -Werror -fPIC $(shell $(LLVM_CONFIG) --cxxflags) -O2
-INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(TRAIT_DIALECT_SOURCE_DIR) -I$(TRAIT_DIALECT_INCLUDE_DIR) -I$(LOWERING_DRIVER_SOURCE_DIR)
+INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_230_PREFIX)/include -I$(TRAIT_DIALECT_SOURCE_DIR) -I$(TRAIT_DIALECT_INCLUDE_DIR) -I$(LOWERING_DRIVER_SOURCE_DIR)
 
 DIALECT_SOURCES := c_api.cpp Canonicalization.cpp ConvertToLLVM.cpp Elaboration.cpp ImplGenerators.cpp Monomorphization.cpp Tuple.cpp TupleEnums.cpp TupleLeafConversion.cpp TupleOps.cpp TupleTypes.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
