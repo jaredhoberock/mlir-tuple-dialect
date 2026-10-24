@@ -269,7 +269,7 @@ LogicalResult DowncastOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
 
 LogicalResult DowncastOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // Once the value has been specialized to a concrete tuple type, the
   // structural promise carried by !tuple.poly is no longer needed. A
@@ -285,7 +285,7 @@ LogicalResult DowncastOp::inferReturnTypes(
 
 LogicalResult DowncastOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<DowncastOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -333,7 +333,7 @@ FailureOr<Type> AppendOp::inferResultType(
 
 LogicalResult AppendOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // An opaque polymorphic tuple has no determined append result (it would
   // be a fresh PolyType, which inference refuses to mint).
@@ -351,7 +351,7 @@ LogicalResult AppendOp::inferReturnTypes(
 
 LogicalResult AppendOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<AppendOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -993,7 +993,7 @@ LogicalResult GetOp::verify() {
 
 LogicalResult GetOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
-    DictionaryAttr attributes, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attributes, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // The result is the element at the index, so a verified get is its
   // element's type. An index the tuple does not have determines nothing;
@@ -1009,7 +1009,7 @@ LogicalResult GetOp::inferReturnTypes(
 
 LogicalResult GetOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<GetOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -1069,7 +1069,7 @@ FailureOr<Type> DropLastOp::inferResultType(Type inputTy, function_ref<InFlightD
 
 LogicalResult DropLastOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // An opaque polymorphic tuple has no determined prefix type (it would be
   // a fresh PolyType, which inference refuses to mint).
@@ -1087,7 +1087,7 @@ LogicalResult DropLastOp::inferReturnTypes(
 
 LogicalResult DropLastOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<DropLastOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -1218,7 +1218,7 @@ LogicalResult FlattenOp::verify() {
 
 LogicalResult FlattenOp::inferReturnTypes(
     MLIRContext *ctx, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // Fails when the outer tuple or any element is polymorphic TupleLike:
   // the flattened arity is unknown there and the result would be a fresh
@@ -1232,7 +1232,7 @@ LogicalResult FlattenOp::inferReturnTypes(
 
 LogicalResult FlattenOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<FlattenOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -1656,7 +1656,7 @@ FailureOr<Type> LastOp::inferResultType(Type inputTy, function_ref<InFlightDiagn
 
 LogicalResult LastOp::inferReturnTypes(
     MLIRContext *, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // Inference is deterministic: it fails rather than mint a fresh
   // PolyType. An opaque polymorphic tuple has no determined element type,
@@ -1675,7 +1675,7 @@ LogicalResult LastOp::inferReturnTypes(
 
 LogicalResult LastOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<LastOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
@@ -1730,7 +1730,7 @@ LogicalResult MakeOp::verify() {
 
 LogicalResult MakeOp::inferReturnTypes(
     MLIRContext *ctx, std::optional<Location>, ValueRange operands,
-    DictionaryAttr, OpaqueProperties, RegionRange,
+    DictionaryAttr, PropertyRef, RegionRange,
     SmallVectorImpl<Type> &inferredReturnTypes) {
   // Total: the result is the tuple of the operand types, determined even
   // when operands mention polymorphism -- no fresh PolyType is needed.
@@ -1744,7 +1744,7 @@ LogicalResult MakeOp::inferReturnTypes(
 
 LogicalResult MakeOp::refineReturnTypes(
     MLIRContext *ctx, std::optional<Location> location, ValueRange operands,
-    DictionaryAttr attrs, OpaqueProperties properties, RegionRange regions,
+    DictionaryAttr attrs, PropertyRef properties, RegionRange regions,
     SmallVectorImpl<Type> &returnTypes) {
   return trait::refineUnlessUnmintable<MakeOp>(ctx, location, operands, attrs,
                                              properties, regions, returnTypes);
