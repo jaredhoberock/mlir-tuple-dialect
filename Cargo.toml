@@ -7,12 +7,12 @@ links = "tuple_dialect"
 [dependencies]
 melior = "0.28.2"
 mlir-sys = "230.0.2"
-trait_dialect = { path = "../mlir-trait-dialect", package = "mlir-trait-dialect" }
-lowering_driver = { path = "../mlir-lowering-driver", package = "mlir-lowering-driver" }
+trait_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git", package = "mlir-trait-dialect" }
+lowering_driver = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", package = "mlir-lowering-driver" }
 
 [lib]
 name = "tuple_dialect"
 path = "src/lib.rs"
 
 [dev-dependencies]
-inline_dialect = { path = "../mlir-inline-dialect", package = "mlir-inline-dialect" }
+inline_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-inline-dialect.git", package = "mlir-inline-dialect" }
