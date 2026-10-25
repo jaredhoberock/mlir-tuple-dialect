@@ -206,6 +206,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 [[package]]
 name = "mlir-inline-dialect"
 version = "0.1.0"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-inline-dialect.git?branch=distribution#a9bc2ecfe3d10cb3846ca04dabae5f49143c6956"
 dependencies = [
  "libc",
  "melior",
@@ -216,6 +217,7 @@ dependencies = [
 [[package]]
 name = "mlir-lowering-driver"
 version = "0.1.0"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git?branch=distribution#aa656af70afbf4aa1f6bbcc25ac6ba337dc4a145"
 dependencies = [
  "melior",
  "mlir-sys",
@@ -233,6 +235,7 @@ dependencies = [
 [[package]]
 name = "mlir-trait-dialect"
 version = "0.2.0"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git?branch=distribution#b8972f5ad97337a0ebe0d526217cf4487fb33411"
 dependencies = [
  "melior",
  "mlir-lowering-driver",
