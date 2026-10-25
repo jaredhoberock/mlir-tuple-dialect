@@ -4,23 +4,19 @@ version = "0.2.0"
 edition = "2024"
 links = "tuple_dialect"
 
-# XXX TODO the estate dependencies name `branch = "distribution"` while the
-# series that changes their build metadata is unmerged; the key leaves when the
-# series merges to main and each dependency is re-locked against main with
-# `cargo update -p`.
 [dependencies]
 melior = "0.28.2"
 mlir-sys = "230.0.2"
-trait_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git", branch = "distribution", package = "mlir-trait-dialect" }
-lowering_driver = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", branch = "distribution", package = "mlir-lowering-driver" }
+trait_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git", package = "mlir-trait-dialect" }
+lowering_driver = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", package = "mlir-lowering-driver" }
+
+[build-dependencies]
+build-support = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", package = "build-support" }
 
 [lib]
 name = "tuple_dialect"
 path = "src/lib.rs"
 
-# XXX TODO the estate dependencies name `branch = "distribution"` while the
-# series that changes their build metadata is unmerged; the key leaves when the
-# series merges to main and each dependency is re-locked against main with
-# `cargo update -p`.
 [dev-dependencies]
-inline_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-inline-dialect.git", branch = "distribution", package = "mlir-inline-dialect" }
+build-support = { git = "ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git", package = "build-support" }
+inline_dialect = { git = "ssh://git@github.com/jaredhoberock/mlir-inline-dialect.git", package = "mlir-inline-dialect" }
