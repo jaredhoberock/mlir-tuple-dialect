@@ -6,10 +6,16 @@ $(error MLIR_SYS_230_PREFIX must be set; point it at your LLVM/MLIR 23 install)
 endif
 
 BUILD_DIR := build
-TRAIT_DIALECT_SOURCE_DIR := ../../mlir-trait-dialect/cpp
-TRAIT_DIALECT_INCLUDE_DIR := ../../mlir-trait-dialect/cpp/build
+ifndef TRAIT_DIALECT_SOURCE_DIR
+$(error TRAIT_DIALECT_SOURCE_DIR must be set; cargo sets it from the dependency crate)
+endif
+ifndef TRAIT_DIALECT_INCLUDE_DIR
+$(error TRAIT_DIALECT_INCLUDE_DIR must be set; cargo sets it from the dependency crate)
+endif
 # The lowering driver's header-only shared inliner interface.
-LOWERING_DRIVER_SOURCE_DIR := ../../mlir-lowering-driver/cpp
+ifndef LOWERING_DRIVER_SOURCE_DIR
+$(error LOWERING_DRIVER_SOURCE_DIR must be set; cargo sets it from the dependency crate)
+endif
 LLVM_BIN_PATH := $(MLIR_SYS_230_PREFIX)/bin
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
