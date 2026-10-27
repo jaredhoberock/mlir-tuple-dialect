@@ -28,6 +28,6 @@ func.func @main() -> i64 {
   %d = trait.derive @T[i32] from @TI given(%b) : (!trait.claim<@B[i32] by @pb>)
   %t = tuple.make(%d : !trait.claim<@T[i32]>) : tuple<!trait.claim<@T[i32]>>
   %p = tuple.get %t, 0 : tuple<!trait.claim<@T[i32]>> -> !trait.claim<@T[i32]>
-  %v = trait.method.call %p @T[i32]::@m() : () -> i64
+  %v = trait.method.call %p @m() : !trait.claim<@T[i32]>, () -> i64
   return %v : i64
 }

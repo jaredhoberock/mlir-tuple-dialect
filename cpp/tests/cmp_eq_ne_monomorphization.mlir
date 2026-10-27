@@ -27,7 +27,7 @@ trait.trait private @PartialEq(%self_claim: !trait.claim<@PartialEq[!S, !O]>) at
   trait.method @eq(!S, !O) -> i1
 
   trait.method @ne(%self: !S, %other: !O) -> i1 {
-    %equal = trait.method.call %self_claim @PartialEq[!S,!O]::@eq(%self, %other) : (!S, !O) -> i1
+    %equal = trait.method.call %self_claim @eq(%self, %other) : !trait.claim<@PartialEq[!S,!O]>, (!S, !O) -> i1
     %true = arith.constant 1 : i1
     %result = arith.xori %equal, %true : i1
     trait.return %result : i1

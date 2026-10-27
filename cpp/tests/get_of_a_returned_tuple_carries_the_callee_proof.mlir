@@ -36,7 +36,7 @@ trait.impl private @Two(%self: !trait.claim<@Bound[i64]>) {
 trait.trait private @Need(%self: !trait.claim<@Need[!S]>) { trait.method @get() -> i64 }
 trait.impl private @Need_from(%self: !trait.claim<@Need[!S]>, %b: !trait.claim<@Bound[!S]>) {
   trait.method @get() -> i64 {
-    %v = trait.method.call %b @Bound[!S]::@value() : () -> i64
+    %v = trait.method.call %b @value() : !trait.claim<@Bound[!S]>, () -> i64
     trait.return %v : i64
   }
 }
@@ -61,8 +61,8 @@ func.func @main() -> i64 {
   %one = tuple.get %ones, 0 : tuple<!trait.claim<@Need[!P]>> -> !trait.claim<@Need[!P]>
   %twos = func.call @make_two() : () -> tuple<!trait.claim<@Need[!P]>>
   %two = tuple.get %twos, 0 : tuple<!trait.claim<@Need[!P]>> -> !trait.claim<@Need[!P]>
-  %a = trait.method.call %one @Need[!P]::@get() : () -> i64
-  %b = trait.method.call %two @Need[!P]::@get() : () -> i64
+  %a = trait.method.call %one @get() : !trait.claim<@Need[!P]>, () -> i64
+  %b = trait.method.call %two @get() : !trait.claim<@Need[!P]>, () -> i64
   %ten = arith.constant 10 : i64
   %tens = arith.muli %a, %ten : i64
   %sum = arith.addi %tens, %b : i64

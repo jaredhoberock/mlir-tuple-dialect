@@ -31,7 +31,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
   }
   func.func @head(%x: !E) -> !E { return %x : !E }
   func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @A[i64]::@value() : () -> i64
+    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
     return %v : i64
   }
 }
@@ -48,7 +48,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
     trait.method @value() -> i64 { %c = arith.constant 7 : i64 trait.return %c : i64 }
   }
   func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @A[i64]::@value() : () -> i64
+    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
     return %v : i64
   }
   func.func @head(%x: !E) -> !E { return %x : !E }
@@ -68,7 +68,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
   func.func @repeat(%a: !trait.claim<@A[i64]>) -> i64 { %n = arith.constant 2 : i64 return %n : i64 }
   func.func @head(%x: !E) -> !E { return %x : !E }
   func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @A[i64]::@value() : () -> i64
+    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
     return %v : i64
   }
 }
@@ -86,9 +86,9 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
   }
   func.func @main() -> i64 {
     %g = trait.allege @G[tuple<i32>]
-    %vg = trait.method.call %g @G[tuple<i32>]::@value() : () -> i64
+    %vg = trait.method.call %g @value() : !trait.claim<@G[tuple<i32>]>, () -> i64
     %a = trait.allege @A[i32]
-    %va = trait.method.call %a @A[i32]::@value() : () -> i64
+    %va = trait.method.call %a @value() : !trait.claim<@A[i32]>, () -> i64
     %r = arith.addi %vg, %va : i64
     return %r : i64
   }

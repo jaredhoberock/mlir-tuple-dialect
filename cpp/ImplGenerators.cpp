@@ -381,9 +381,9 @@ static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
 ///   trait.impl @...(%self: !trait.claim<@PartialEq[tuple<i32>, tuple<i32>]>,
 ///                   %a: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>) {
 ///     trait.method @eq(%x: tuple<i32>, %y: tuple<i32>) -> i1 {
-///       %claims = trait.method.call %a
-///         @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
-///         : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+///       %claims = trait.method.call %a @claims()
+///         : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>,
+///           () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 ///       %res = tuple.cmp eq @PartialEq, %x, %y, %claims
 ///       trait.return %res : i1
 ///     }
@@ -444,12 +444,12 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
     Value self = entry->getArgument(0);
     Value other = entry->getArgument(1);
 
-    // %claims = trait.method.call %a @tuple.Map<Trait>[lhs,rhs]::@claims() : () -> claimsTy
+    // %claims = trait.method.call %a @claims()
+    //   : !trait.claim<@tuple.Map<Trait>[lhs,rhs]>, () -> claimsTy
     Value claims = MethodCallOp::create(detached,
       loc,
       /*results=*/TypeRange{claimsTy},
-      /*traitName=*/mapperRef.getValue(),
-      /*methodName=*/"claims",
+      /*method_name=*/"claims",
       /*claim=*/mapper,
       /*arguments=*/ValueRange{}
     ).getResult(0);

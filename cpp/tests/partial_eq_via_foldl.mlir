@@ -47,8 +47,8 @@ trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[
 trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!tuple.poly<0>, !tuple.poly<1>]>, %mapped: !trait.claim<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>]>) {
   trait.method @eq(%self: !tuple.poly<0>, %other: !tuple.poly<1>) -> i1 {
     // first get a tuple of elementwise @PartialEq claims
-    %claims = trait.method.call %mapped @tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>]::@claims()
-      : () -> !trait.proj<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>], "Claims">
+    %claims = trait.method.call %mapped @claims()
+      : !trait.claim<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>]>, () -> !trait.proj<@tuple.MapPartialEq[!tuple.poly<0>,!tuple.poly<1>], "Claims">
 
     // fold @PartialEq::@eq over the tuples
     %res = tuple.cmp eq @PartialEq, %self, %other, %claims
@@ -59,8 +59,8 @@ trait.impl private @tuple.PartialEq(%self_claim: !trait.claim<@PartialEq[!tuple.
 
 func.func @foo(%a: tuple<i32,f64>, %b: tuple<i32,f64>) -> i1 {
   %c = trait.allege @PartialEq[tuple<i32,f64>,tuple<i32,f64>]
-  %res = trait.method.call %c @PartialEq[tuple<i32,f64>,tuple<i32,f64>]::@eq(%a, %b)
-    : (tuple<i32,f64>, tuple<i32,f64>) -> i1
+  %res = trait.method.call %c @eq(%a, %b)
+    : !trait.claim<@PartialEq[tuple<i32,f64>,tuple<i32,f64>]>, (tuple<i32,f64>, tuple<i32,f64>) -> i1
   return %res : i1
 }
 

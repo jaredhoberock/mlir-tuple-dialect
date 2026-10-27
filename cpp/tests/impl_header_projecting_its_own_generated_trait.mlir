@@ -20,7 +20,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
   trait.impl private @I(%s: !trait.claim<@H[!trait.proj<@H[tuple<i64>], "Element">]>) { trait.assoc_type @Element = i32 }
   func.func @main() -> i64 {
     %a = trait.allege @H[i64]
-    %v = trait.method.call %a @H[i64]::@v() : () -> i64
+    %v = trait.method.call %a @v() : !trait.claim<@H[i64]>, () -> i64
     return %v : i64
   }
 }

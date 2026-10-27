@@ -26,7 +26,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
     %n = arith.constant 7 : i64
     %t = tuple.make(%n : i64) : tuple<i64>
     %a = trait.allege @Eq[tuple<i64>, tuple<i64>]
-    %same = trait.method.call %a @Eq[tuple<i64>, tuple<i64>]::@eq(%t, %t) : (tuple<i64>, tuple<i64>) -> i1
+    %same = trait.method.call %a @eq(%t, %t) : !trait.claim<@Eq[tuple<i64>, tuple<i64>]>, (tuple<i64>, tuple<i64>) -> i1
     %r = arith.extui %same : i1 to i64
     return %r : i64
   }

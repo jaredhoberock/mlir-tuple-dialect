@@ -33,16 +33,16 @@ trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[
 func.func @claims_here()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims"> {
   %c = trait.allege @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
-  %claims = trait.method.call %c @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
-    : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+  %claims = trait.method.call %c @claims()
+    : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>, () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
   return %claims : !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 }
 
 func.func @claims_there()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims"> {
   %c = trait.allege @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
-  %claims = trait.method.call %c @tuple.MapPartialEq[tuple<i32>, tuple<i32>]::@claims()
-    : () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+  %claims = trait.method.call %c @claims()
+    : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>, () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
   return %claims : !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 }
 

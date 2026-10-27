@@ -187,7 +187,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
     // build the body:
     //
     // ^bb0(%acc: i1, %li: !Li, %ri: !Ri, %ci: !trait.claim<@Trait[!Li,!Ri]>):
-    //   %call_res = trait.method.call %ci @Trait[!Li,!Ri]::method(%li, %ri) : ...
+    //   %call_res = trait.method.call %ci @method(%li, %ri) : !trait.claim<@Trait[!Li,!Ri]>, ...
     //   %resi = AND or OR with %acc
     //   yield %resi : i1
     {
@@ -214,8 +214,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
       // call the method requested by the tuple.cmp
       Value callRes = trait::MethodCallOp::create(rewriter,
         loc, TypeRange{i1Ty},
-        op.getTraitRefAttr(),
-        FlatSymbolRefAttr::get(ctx, method),
+        method,
         ci,
         ValueRange{li,ri}
       ).getResult(0);
@@ -290,10 +289,10 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
     //   %all_eq  = tuple.get %acc, 1 : tuple<i1,i1> -> i1
     //
     //   // Per-element calls (exactly two)
-    //   %lt_i = trait.method.call %ci @Trait[!Li,!Ri]::@lt(%li, %ri)
-    //           : (!Li, !Ri) -> i1
-    //   %gt_i = trait.method.call %ci @Trait[!Li,!Ri]::@gt(%li, %ri)
-    //           : (!Li, !Ri) -> i1
+    //   %lt_i = trait.method.call %ci @lt(%li, %ri)
+    //           : !trait.claim<@Trait[!Li,!Ri]>, (!Li, !Ri) -> i1
+    //   %gt_i = trait.method.call %ci @gt(%li, %ri)
+    //           : !trait.claim<@Trait[!Li,!Ri]>, (!Li, !Ri) -> i1
     //
     //   // Equality at this position
     //   %either = arith.ori %lt_i, %gt_i
@@ -337,11 +336,9 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
       Value allEq = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(1));
 
       Value lt_i = trait::MethodCallOp::create(rewriter,
-        loc, TypeRange{i1}, op.getTraitRefAttr(),
-        FlatSymbolRefAttr::get(ctx, "lt"), ci, ValueRange{li, ri}).getResult(0);
+        loc, TypeRange{i1}, "lt", ci, ValueRange{li, ri}).getResult(0);
       Value gt_i = trait::MethodCallOp::create(rewriter,
-        loc, TypeRange{i1}, op.getTraitRefAttr(),
-        FlatSymbolRefAttr::get(ctx, "gt"), ci, ValueRange{li, ri}).getResult(0);
+        loc, TypeRange{i1}, "gt", ci, ValueRange{li, ri}).getResult(0);
 
       Value either = arith::OrIOp::create(rewriter, loc, lt_i, gt_i);
       Value eq_i   = arith::XOrIOp::create(rewriter, loc, either, cTrue);

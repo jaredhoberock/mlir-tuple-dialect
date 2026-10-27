@@ -74,7 +74,7 @@ func.func @map_id_i32_f32(
     : tuple<i32,f32>, tuple<!trait.claim<@Id[i32]>, !trait.claim<@Id[f32]>>
     -> tuple<i32,f32> {
   ^bb0(%x: !E, %c: !trait.claim<@Id[!E]>):
-    %res = trait.method.call %c @Id[!E]::@id(%x) : (!E) -> !E
+    %res = trait.method.call %c @id(%x) : !trait.claim<@Id[!E]>, (!E) -> !E
     yield %res : !E
   }
 
