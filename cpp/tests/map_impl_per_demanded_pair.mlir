@@ -53,12 +53,12 @@ func.func @claims_of_a_pair()
 // the pair's impl takes evidence of @PartialEq at each of its two element positions
 // CHECK: trait.impl private @tuple.MapPartialEq_impl_{{h[0-9a-f]+}}(%self: !trait.claim<@tuple.MapPartialEq[tuple<i32, f64>, tuple<i32, f64>]>
 // CHECK-SAME: , %partialeq: !trait.claim<@PartialEq[i32, i32]>, %partialeq_0: !trait.claim<@PartialEq[f64, f64]>)
-// CHECK-SAME: bindings {Claims = tuple<!trait.claim<@PartialEq[i32, i32]>, !trait.claim<@PartialEq[f64, f64]>>}
+// CHECK-NEXT: bindings {Claims = tuple<!trait.claim<@PartialEq[i32, i32]>, !trait.claim<@PartialEq[f64, f64]>>}
 
 // the singleton's impl is its own, taking the one premise its one position needs
 // CHECK: trait.impl private @tuple.MapPartialEq_impl_{{h[0-9a-f]+}}(%self: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>
 // CHECK-SAME: , %partialeq: !trait.claim<@PartialEq[i32, i32]>)
-// CHECK-SAME: bindings {Claims = tuple<!trait.claim<@PartialEq[i32, i32]>>}
+// CHECK-NEXT: bindings {Claims = tuple<!trait.claim<@PartialEq[i32, i32]>>}
 
 // -----
 
