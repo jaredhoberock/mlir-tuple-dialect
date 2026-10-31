@@ -41,30 +41,29 @@ func.func @cmp_ge_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialOrd(%self: !trait.claim<@PartialOrd[!S, !O]>) attributes {tuple.impl_generator = "partial_ord"} {
-  trait.method @lt(!S, !O) -> i1
-  trait.method @le(!S, !O) -> i1
-  trait.method @gt(!S, !O) -> i1
-  trait.method @ge(!S, !O) -> i1
-}
+trait.trait private @PartialOrd(!trait.claim<@PartialOrd[!S, !O]>) members [@PartialOrd.lt, @PartialOrd.le, @PartialOrd.gt, @PartialOrd.ge] attributes {tuple.impl_generator = "partial_ord"}
+func.func private @PartialOrd.lt(!trait.claim<@PartialOrd[!S, !O]>, !S, !O) -> i1
+func.func private @PartialOrd.le(!trait.claim<@PartialOrd[!S, !O]>, !S, !O) -> i1
+func.func private @PartialOrd.gt(!trait.claim<@PartialOrd[!S, !O]>, !S, !O) -> i1
+func.func private @PartialOrd.ge(!trait.claim<@PartialOrd[!S, !O]>, !S, !O) -> i1
 
-trait.impl private @PartialOrd_i32(%self_claim: !trait.claim<@PartialOrd[i32, i32]>) {
-  trait.method @lt(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi slt, %self, %other : i32
-    trait.return %res : i1
-  }
-  trait.method @le(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi sle, %self, %other : i32
-    trait.return %res : i1
-  }
-  trait.method @gt(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi sgt, %self, %other : i32
-    trait.return %res : i1
-  }
-  trait.method @ge(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi sge, %self, %other : i32
-    trait.return %res : i1
-  }
+trait.impl private @PartialOrd_i32(%self_claim: !trait.claim<@PartialOrd[i32, i32]>) members [@PartialOrd.lt -> @PartialOrd_i32.lt, @PartialOrd.le -> @PartialOrd_i32.le, @PartialOrd.gt -> @PartialOrd_i32.gt, @PartialOrd.ge -> @PartialOrd_i32.ge] {
+}
+func.func private @PartialOrd_i32.lt(%self_claim: !trait.claim<@PartialOrd[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi slt, %self, %other : i32
+  return %res : i1
+}
+func.func private @PartialOrd_i32.le(%self_claim: !trait.claim<@PartialOrd[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi sle, %self, %other : i32
+  return %res : i1
+}
+func.func private @PartialOrd_i32.gt(%self_claim: !trait.claim<@PartialOrd[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi sgt, %self, %other : i32
+  return %res : i1
+}
+func.func private @PartialOrd_i32.ge(%self_claim: !trait.claim<@PartialOrd[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi sge, %self, %other : i32
+  return %res : i1
 }
 
 // -----
@@ -121,23 +120,23 @@ func.func @cmp_ge_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl private @PartialOrd_i64(%self_claim: !trait.claim<@PartialOrd[i64, i64]>) {
-  trait.method @lt(%self: i64, %other: i64) -> i1 {
-    %res = arith.cmpi slt, %self, %other : i64
-    trait.return %res : i1
-  }
-  trait.method @le(%self: i64, %other: i64) -> i1 {
-    %res = arith.cmpi sle, %self, %other : i64
-    trait.return %res : i1
-  }
-  trait.method @gt(%self: i64, %other: i64) -> i1 {
-    %res = arith.cmpi sgt, %self, %other : i64
-    trait.return %res : i1
-  }
-  trait.method @ge(%self: i64, %other: i64) -> i1 {
-    %res = arith.cmpi sge, %self, %other : i64
-    trait.return %res : i1
-  }
+trait.impl private @PartialOrd_i64(%self_claim: !trait.claim<@PartialOrd[i64, i64]>) members [@PartialOrd.lt -> @PartialOrd_i64.lt, @PartialOrd.le -> @PartialOrd_i64.le, @PartialOrd.gt -> @PartialOrd_i64.gt, @PartialOrd.ge -> @PartialOrd_i64.ge] {
+}
+func.func private @PartialOrd_i64.lt(%self_claim: !trait.claim<@PartialOrd[i64, i64]>, %self: i64, %other: i64) -> i1 {
+  %res = arith.cmpi slt, %self, %other : i64
+  return %res : i1
+}
+func.func private @PartialOrd_i64.le(%self_claim: !trait.claim<@PartialOrd[i64, i64]>, %self: i64, %other: i64) -> i1 {
+  %res = arith.cmpi sle, %self, %other : i64
+  return %res : i1
+}
+func.func private @PartialOrd_i64.gt(%self_claim: !trait.claim<@PartialOrd[i64, i64]>, %self: i64, %other: i64) -> i1 {
+  %res = arith.cmpi sgt, %self, %other : i64
+  return %res : i1
+}
+func.func private @PartialOrd_i64.ge(%self_claim: !trait.claim<@PartialOrd[i64, i64]>, %self: i64, %other: i64) -> i1 {
+  %res = arith.cmpi sge, %self, %other : i64
+  return %res : i1
 }
 
 // -----

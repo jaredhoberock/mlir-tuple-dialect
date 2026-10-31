@@ -24,15 +24,13 @@ fn append_partial_eq_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialEq(%claim: !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>) {
-      trait.method @eq(!trait.poly<0>, !trait.poly<1>) -> i1
-    
-      trait.method @ne(%self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
-        %equal = trait.method.call %claim @eq(%self, %other) : !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, (!trait.poly<0>, !trait.poly<1>) -> i1
-        %true = arith.constant 1 : i1
-        %result = arith.xori %equal, %true : i1
-        trait.return %result : i1
-      }
+    trait.trait private @PartialEq(!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>) members [@PartialEq.eq, default @PartialEq.ne]
+    func.func private @PartialEq.eq(!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
+    func.func private @PartialEq.ne(%claim: !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, %self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
+      %equal = trait.func.call @PartialEq.eq(%claim, %self, %other) : (!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
+      %true = arith.constant 1 : i1
+      %result = arith.xori %equal, %true : i1
+      return %result : i1
     }
     "#;
 
@@ -52,12 +50,11 @@ fn append_partial_ord_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialOrd(%claim: !trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>) {
-      trait.method @lt(!trait.poly<0>, !trait.poly<1>) -> i1
-      trait.method @le(!trait.poly<0>, !trait.poly<1>) -> i1
-      trait.method @gt(!trait.poly<0>, !trait.poly<1>) -> i1
-      trait.method @ge(!trait.poly<0>, !trait.poly<1>) -> i1
-    }
+    trait.trait private @PartialOrd(!trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>) members [@PartialOrd.lt, @PartialOrd.le, @PartialOrd.gt, @PartialOrd.ge]
+    func.func private @PartialOrd.lt(!trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
+    func.func private @PartialOrd.le(!trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
+    func.func private @PartialOrd.gt(!trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
+    func.func private @PartialOrd.ge(!trait.claim<@PartialOrd[!trait.poly<0>, !trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
     "#;
 
     inline::parse_source_into_block(
@@ -76,11 +73,11 @@ fn append_partial_eq_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl private @PartialEq_i32(%claim: !trait.claim<@PartialEq[i32,i32]>) {
-      trait.method @eq(%self: i32, %other: i32) -> i1 {
-        %res = arith.cmpi eq, %self, %other : i32
-        trait.return %res : i1
-      }
+    trait.impl private @PartialEq_i32(%claim: !trait.claim<@PartialEq[i32,i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq, @PartialEq.ne -> @PartialEq.ne] {
+    }
+    func.func private @PartialEq_i32.eq(%claim: !trait.claim<@PartialEq[i32,i32]>, %self: i32, %other: i32) -> i1 {
+      %res = arith.cmpi eq, %self, %other : i32
+      return %res : i1
     }
     "#;
 
@@ -100,23 +97,23 @@ fn append_partial_ord_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl private @PartialOrd_i32(%claim: !trait.claim<@PartialOrd[i32,i32]>) {
-      trait.method @lt(%self: i32, %other: i32) -> i1 {
-        %res = arith.cmpi slt, %self, %other : i32
-        trait.return %res : i1
-      }
-      trait.method @le(%self: i32, %other: i32) -> i1 {
-        %res = arith.cmpi sle, %self, %other : i32
-        trait.return %res : i1
-      }
-      trait.method @gt(%self: i32, %other: i32) -> i1 {
-        %res = arith.cmpi sgt, %self, %other : i32
-        trait.return %res : i1
-      }
-      trait.method @ge(%self: i32, %other: i32) -> i1 {
-        %res = arith.cmpi sge, %self, %other : i32
-        trait.return %res : i1
-      }
+    trait.impl private @PartialOrd_i32(%claim: !trait.claim<@PartialOrd[i32,i32]>) members [@PartialOrd.lt -> @PartialOrd_i32.lt, @PartialOrd.le -> @PartialOrd_i32.le, @PartialOrd.gt -> @PartialOrd_i32.gt, @PartialOrd.ge -> @PartialOrd_i32.ge] {
+    }
+    func.func private @PartialOrd_i32.lt(%claim: !trait.claim<@PartialOrd[i32,i32]>, %self: i32, %other: i32) -> i1 {
+      %res = arith.cmpi slt, %self, %other : i32
+      return %res : i1
+    }
+    func.func private @PartialOrd_i32.le(%claim: !trait.claim<@PartialOrd[i32,i32]>, %self: i32, %other: i32) -> i1 {
+      %res = arith.cmpi sle, %self, %other : i32
+      return %res : i1
+    }
+    func.func private @PartialOrd_i32.gt(%claim: !trait.claim<@PartialOrd[i32,i32]>, %self: i32, %other: i32) -> i1 {
+      %res = arith.cmpi sgt, %self, %other : i32
+      return %res : i1
+    }
+    func.func private @PartialOrd_i32.ge(%claim: !trait.claim<@PartialOrd[i32,i32]>, %self: i32, %other: i32) -> i1 {
+      %res = arith.cmpi sge, %self, %other : i32
+      return %res : i1
     }
     "#;
 

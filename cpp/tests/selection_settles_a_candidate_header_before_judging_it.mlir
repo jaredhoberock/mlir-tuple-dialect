@@ -22,16 +22,18 @@
 !T = !trait.poly<0>
 !E = !trait.proj<@H[tuple<i64>], "Element">
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @H(%s: !trait.claim<@H[!T]>) attributes {tuple.impl_generator = "homogeneous_tuple"} {
-    trait.assoc_type @Element
+  trait.trait private @H(!trait.claim<@H[!T]>) assoc {Element = 0} attributes {tuple.impl_generator = "homogeneous_tuple"}
+  trait.trait private @A(!trait.claim<@A[!T]>) members [@A.value]
+  func.func private @A.value(!trait.claim<@A[!T]>) -> i64
+  trait.impl private @I(%s: !trait.claim<@A[!E]>) members [@A.value -> @I.value] {
   }
-  trait.trait private @A(%s: !trait.claim<@A[!T]>) { trait.method @value() -> i64 }
-  trait.impl private @I(%s: !trait.claim<@A[!E]>) {
-    trait.method @value() -> i64 { %c = arith.constant 7 : i64 trait.return %c : i64 }
+  func.func private @I.value(%s: !trait.claim<@A[!E]>) -> i64 {
+    %c = arith.constant 7 : i64 return %c : i64
   }
   func.func @head(%x: !E) -> !E { return %x : !E }
-  func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
+  func.func @main() -> i64 {
+    %a = trait.allege @A[i64]
+    %v = trait.func.call @A.value(%a) : (!trait.claim<@A[i64]>) -> i64
     return %v : i64
   }
 }
@@ -40,15 +42,17 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
 !T = !trait.poly<0>
 !E = !trait.proj<@H[tuple<i64>], "Element">
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @H(%s: !trait.claim<@H[!T]>) attributes {tuple.impl_generator = "homogeneous_tuple"} {
-    trait.assoc_type @Element
+  trait.trait private @H(!trait.claim<@H[!T]>) assoc {Element = 0} attributes {tuple.impl_generator = "homogeneous_tuple"}
+  trait.trait private @A(!trait.claim<@A[!T]>) members [@A.value]
+  func.func private @A.value(!trait.claim<@A[!T]>) -> i64
+  trait.impl private @I(%s: !trait.claim<@A[!E]>) members [@A.value -> @I.value] {
   }
-  trait.trait private @A(%s: !trait.claim<@A[!T]>) { trait.method @value() -> i64 }
-  trait.impl private @I(%s: !trait.claim<@A[!E]>) {
-    trait.method @value() -> i64 { %c = arith.constant 7 : i64 trait.return %c : i64 }
+  func.func private @I.value(%s: !trait.claim<@A[!E]>) -> i64 {
+    %c = arith.constant 7 : i64 return %c : i64
   }
-  func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
+  func.func @main() -> i64 {
+    %a = trait.allege @A[i64]
+    %v = trait.func.call @A.value(%a) : (!trait.claim<@A[i64]>) -> i64
     return %v : i64
   }
   func.func @head(%x: !E) -> !E { return %x : !E }
@@ -58,17 +62,19 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
 !T = !trait.poly<0>
 !E = !trait.proj<@H[tuple<i64>], "Element">
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @H(%s: !trait.claim<@H[!T]>) attributes {tuple.impl_generator = "homogeneous_tuple"} {
-    trait.assoc_type @Element
+  trait.trait private @H(!trait.claim<@H[!T]>) assoc {Element = 0} attributes {tuple.impl_generator = "homogeneous_tuple"}
+  trait.trait private @A(!trait.claim<@A[!T]>) members [@A.value]
+  func.func private @A.value(!trait.claim<@A[!T]>) -> i64
+  trait.impl private @I(%s: !trait.claim<@A[!E]>) members [@A.value -> @I.value] {
   }
-  trait.trait private @A(%s: !trait.claim<@A[!T]>) { trait.method @value() -> i64 }
-  trait.impl private @I(%s: !trait.claim<@A[!E]>) {
-    trait.method @value() -> i64 { %c = arith.constant 7 : i64 trait.return %c : i64 }
+  func.func private @I.value(%s: !trait.claim<@A[!E]>) -> i64 {
+    %c = arith.constant 7 : i64 return %c : i64
   }
-  func.func @repeat(%a: !trait.claim<@A[i64]>) -> i64 { %n = arith.constant 2 : i64 return %n : i64 }
+  func.func @repeat() -> i64 { %a = trait.allege @A[i64] %n = arith.constant 2 : i64 return %n : i64 }
   func.func @head(%x: !E) -> !E { return %x : !E }
-  func.func @main(%a: !trait.claim<@A[i64]>) -> i64 {
-    %v = trait.method.call %a @value() : !trait.claim<@A[i64]>, () -> i64
+  func.func @main() -> i64 {
+    %a = trait.allege @A[i64]
+    %v = trait.func.call @A.value(%a) : (!trait.claim<@A[i64]>) -> i64
     return %v : i64
   }
 }
@@ -76,19 +82,22 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
 //--- settled_by_another_demand.mlir
 !T = !trait.poly<0>
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @G(%s: !trait.claim<@G[!T]>) attributes {tuple.impl_generator = "homogeneous_tuple"} {
-    trait.assoc_type @Element
-    trait.method @value() -> i64 { %c = arith.constant 0 : i64 trait.return %c : i64 }
+  trait.trait private @G(!trait.claim<@G[!T]>) assoc {Element = 0} members [default @G.value] attributes {tuple.impl_generator = "homogeneous_tuple"}
+  func.func private @G.value(%s: !trait.claim<@G[!T]>) -> i64 {
+    %c = arith.constant 0 : i64 return %c : i64
   }
-  trait.trait private @A(%s: !trait.claim<@A[!T]>) { trait.method @value() -> i64 }
-  trait.impl private @I(%s: !trait.claim<@A[!trait.proj<@G[tuple<i32>], "Element">]>) {
-    trait.method @value() -> i64 { %c = arith.constant 17 : i64 trait.return %c : i64 }
+  trait.trait private @A(!trait.claim<@A[!T]>) members [@A.value]
+  func.func private @A.value(!trait.claim<@A[!T]>) -> i64
+  trait.impl private @I(%s: !trait.claim<@A[!trait.proj<@G[tuple<i32>], "Element">]>) members [@A.value -> @I.value] {
+  }
+  func.func private @I.value(%s: !trait.claim<@A[!trait.proj<@G[tuple<i32>], "Element">]>) -> i64 {
+    %c = arith.constant 17 : i64 return %c : i64
   }
   func.func @main() -> i64 {
     %g = trait.allege @G[tuple<i32>]
-    %vg = trait.method.call %g @value() : !trait.claim<@G[tuple<i32>]>, () -> i64
+    %vg = trait.func.call @G.value(%g) : (!trait.claim<@G[tuple<i32>]>) -> i64
     %a = trait.allege @A[i32]
-    %va = trait.method.call %a @value() : !trait.claim<@A[i32]>, () -> i64
+    %va = trait.func.call @A.value(%a) : (!trait.claim<@A[i32]>) -> i64
     %r = arith.addi %vg, %va : i64
     return %r : i64
   }

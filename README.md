@@ -38,19 +38,25 @@ During impl resolution, the tuple dialect generates the necessary impls of `Part
 ```mlir
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) {
-  trait.method @eq(!S, !O) -> i1
+trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, default @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
+func.func private @PartialEq.eq(!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
+func.func private @PartialEq.ne(%self: !trait.claim<@PartialEq[!S, !O]>, %a: !S, %b: !O) -> i1 {
+  %eq = trait.func.call @PartialEq.eq(%self, %a, %b) : (!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
+  %true = arith.constant 1 : i1
+  %ne = arith.xori %eq, %true : i1
+  return %ne : i1
 }
 
-trait.impl private @PartialEq_i64(%self: !trait.claim<@PartialEq[i64, i64]>) {
-  trait.method @eq(%a: i64, %b: i64) -> i1 {
-    %res = arith.cmpi eq, %a, %b : i64
-    trait.return %res : i1
-  }
+trait.impl private @PartialEq_i64(%self: !trait.claim<@PartialEq[i64, i64]>)
+    members [@PartialEq.eq -> @PartialEq_i64.eq, @PartialEq.ne -> @PartialEq.ne] {
+}
+func.func private @PartialEq_i64.eq(%self: !trait.claim<@PartialEq[i64, i64]>, %a: i64, %b: i64) -> i1 {
+  %res = arith.cmpi eq, %a, %b : i64
+  return %res : i1
 }
 
 func.func @eq_i64_pair(%x: tuple<i64,i64>, %y: tuple<i64,i64>) -> i1 {
-  %res = tuple.cmp eq, %x, %y : tuple<i64,i64>, tuple<i64,i64>
+  %res = tuple.cmp eq @PartialEq, %x, %y : tuple<i64,i64>, tuple<i64,i64>
   return %res : i1
 }
 ```

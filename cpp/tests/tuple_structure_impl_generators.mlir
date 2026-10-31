@@ -5,14 +5,12 @@
 
 !T = !trait.poly<0>
 
-trait.trait private @tuple.Tuple(%self: !trait.claim<@tuple.Tuple[!T]>) attributes {
+trait.trait private @tuple.Tuple(!trait.claim<@tuple.Tuple[!T]>) attributes {
   tuple.impl_generator = "tuple"
-} {}
+}
 
-trait.trait private @tuple.HomogeneousTuple(%self: !trait.claim<@tuple.HomogeneousTuple[!T]>) attributes {
+trait.trait private @tuple.HomogeneousTuple(!trait.claim<@tuple.HomogeneousTuple[!T]>) assoc {Element = 0} attributes {
   tuple.impl_generator = "homogeneous_tuple"
-} {
-  trait.assoc_type @Element
 }
 
 // CHECK-LABEL: func.func @tuple_empty

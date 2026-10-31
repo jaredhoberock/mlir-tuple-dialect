@@ -9,40 +9,35 @@
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self: !trait.claim<@PartialEq[!S, !O]>) attributes {tuple.impl_generator = "partial_eq"} {
-  trait.method @eq(!S,!O) -> i1
-}
+trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq] attributes {tuple.impl_generator = "partial_eq"}
+func.func private @PartialEq.eq(!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
 
-trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) {
-  trait.method @eq(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi eq, %self, %other : i32
-    trait.return %res : i1
-  }
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq] {
+}
+func.func private @PartialEq_i32.eq(%self_claim: !trait.claim<@PartialEq[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi eq, %self, %other : i32
+  return %res : i1
 }
 
 !MS = !trait.poly<2>
 !MO = !trait.poly<3>
-trait.trait private @tuple.MapPartialEq(%self: !trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) attributes {
+trait.trait private @tuple.MapPartialEq(!trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) assoc {Claims = 0} members [@tuple.MapPartialEq.claims] attributes {
   tuple.impl_generator = "map",
   tuple.mapped_trait = @PartialEq
-} {
-  trait.assoc_type @Claims
-  trait.method @claims() -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 }
+func.func private @tuple.MapPartialEq.claims(!trait.claim<@tuple.MapPartialEq[!trait.poly<0>, !trait.poly<1>]>) -> !trait.proj<@tuple.MapPartialEq[!trait.poly<0>,!trait.poly<1>], "Claims">
 
 func.func @claims_here()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims"> {
   %c = trait.allege @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
-  %claims = trait.method.call %c @claims()
-    : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>, () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+  %claims = trait.func.call @tuple.MapPartialEq.claims(%c) : (!trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>) -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
   return %claims : !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 }
 
 func.func @claims_there()
     -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims"> {
   %c = trait.allege @tuple.MapPartialEq[tuple<i32>, tuple<i32>]
-  %claims = trait.method.call %c @claims()
-    : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>, () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+  %claims = trait.func.call @tuple.MapPartialEq.claims(%c) : (!trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>) -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
   return %claims : !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
 }
 

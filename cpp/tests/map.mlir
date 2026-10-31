@@ -44,20 +44,19 @@ func.func @map_i64_i64_to_f32_f32(%arg0: tuple<i64,i64>) -> tuple<f32,f32> {
 }
 
 !S = !trait.poly<0>
-trait.trait private @Id(%self_claim: !trait.claim<@Id[!S]>) {
-  trait.method @id(%self: !S) -> !S
+trait.trait private @Id(!trait.claim<@Id[!S]>) members [@Id.id]
+func.func private @Id.id(!trait.claim<@Id[!S]>, !S) -> !S
+
+trait.impl private @Id_i32(%self_claim: !trait.claim<@Id[i32]>) members [@Id.id -> @Id_i32.id] {
+}
+func.func private @Id_i32.id(%self_claim: !trait.claim<@Id[i32]>, %self: i32) -> i32 {
+  return %self : i32
 }
 
-trait.impl private @Id_i32(%self_claim: !trait.claim<@Id[i32]>) {
-  trait.method @id(%self: i32) -> i32 {
-    trait.return %self : i32
-  }
+trait.impl private @Id_f32(%self_claim: !trait.claim<@Id[f32]>) members [@Id.id -> @Id_f32.id] {
 }
-
-trait.impl private @Id_f32(%self_claim: !trait.claim<@Id[f32]>) {
-  trait.method @id(%self: f32) -> f32 {
-    trait.return %self : f32
-  }
+func.func private @Id_f32.id(%self_claim: !trait.claim<@Id[f32]>, %self: f32) -> f32 {
+  return %self : f32
 }
 
 // ---- call a method within monomorphic map
@@ -74,7 +73,7 @@ func.func @map_id_i32_f32(
     : tuple<i32,f32>, tuple<!trait.claim<@Id[i32]>, !trait.claim<@Id[f32]>>
     -> tuple<i32,f32> {
   ^bb0(%x: !E, %c: !trait.claim<@Id[!E]>):
-    %res = trait.method.call %c @id(%x) : !trait.claim<@Id[!E]>, (!E) -> !E
+    %res = trait.func.call @Id.id(%c, %x) : (!trait.claim<@Id[!E]>, !E) -> !E
     yield %res : !E
   }
 

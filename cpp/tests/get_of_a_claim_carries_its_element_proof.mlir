@@ -10,24 +10,26 @@
 
 // CHECK: {{^}}9{{$}}
 
-trait.trait private @B(%s: !trait.claim<@B[!trait.poly<0>]>) {}
-trait.impl private @BI(%s: !trait.claim<@B[i32]>) {}
+trait.trait private @B(!trait.claim<@B[!trait.poly<0>]>)
+trait.impl private @BI(%s: !trait.claim<@B[i32]>) {
+}
 trait.proof private @pb {
   %b = trait.derive @B[i32] from @BI given()
   trait.return %b : !trait.claim<@B[i32]>
 }
-trait.trait private @T(%s: !trait.claim<@T[!trait.poly<0>]>) { trait.method @m() -> i64 }
-trait.impl private @TI(%s: !trait.claim<@T[i32]>, %b: !trait.claim<@B[i32]>) {
-  trait.method @m() -> i64 {
-    %v = arith.constant 9 : i64
-    trait.return %v : i64
-  }
+trait.trait private @T(!trait.claim<@T[!trait.poly<0>]>) members [@T.m]
+func.func private @T.m(!trait.claim<@T[!trait.poly<0>]>) -> i64
+trait.impl private @TI(%s: !trait.claim<@T[i32]>, %b: !trait.claim<@B[i32]>) members [@T.m -> @TI.m] {
+}
+func.func private @TI.m(%s: !trait.claim<@T[i32]>, %b: !trait.claim<@B[i32]>) -> i64 {
+  %v = arith.constant 9 : i64
+  return %v : i64
 }
 func.func @main() -> i64 {
   %b = trait.witness @pb for @B[i32]
   %d = trait.derive @T[i32] from @TI given(%b) : (!trait.claim<@B[i32] by @pb>)
   %t = tuple.make(%d : !trait.claim<@T[i32]>) : tuple<!trait.claim<@T[i32]>>
   %p = tuple.get %t, 0 : tuple<!trait.claim<@T[i32]>> -> !trait.claim<@T[i32]>
-  %v = trait.method.call %p @m() : !trait.claim<@T[i32]>, () -> i64
+  %v = trait.func.call @T.m(%p) : (!trait.claim<@T[i32]>) -> i64
   return %v : i64
 }

@@ -4,7 +4,7 @@
 // claim for one variable cannot downcast another
 
 !T = !trait.poly<0>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @wrong_value_poly(
   %arg0: !trait.poly<1>,
@@ -19,7 +19,7 @@ func.func @wrong_value_poly(
 // the result must preserve the rewritten variable identity
 
 !T = !trait.poly<0>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @wrong_result_poly(
   %arg0: !trait.poly<0>,
@@ -34,7 +34,7 @@ func.func @wrong_result_poly(
 // polymorphic downcast must actually introduce a tuple-polymorphic view
 
 !T = !trait.poly<0>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @no_rewrite(
   %arg0: !trait.poly<0>,
@@ -49,7 +49,7 @@ func.func @no_rewrite(
 // concrete tuple claims are only valid as identity conversions
 
 !T = !trait.poly<0>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @concrete_claim_value_mismatch(
   %arg0: tuple<i64>,
@@ -64,7 +64,7 @@ func.func @concrete_claim_value_mismatch(
 // tuple-structure claims must name exactly the tuple type being proven
 
 !T = !trait.poly<0>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @tuple_claim_wrong_arity(
   %arg0: !trait.poly<0>,
@@ -80,7 +80,7 @@ func.func @tuple_claim_wrong_arity(
 
 !T = !trait.poly<0>
 !P = tuple<!trait.poly<0>>
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 func.func @tuple_claim_non_bare_poly(
   %arg0: !P,
@@ -94,7 +94,7 @@ func.func @tuple_claim_non_bare_poly(
 // -----
 // internal tuple helper facts are not accepted by tuple.downcast
 
-trait.trait private @tuple.Tuple(%self: !trait.claim<@tuple.Tuple[!trait.poly<0>]>) {}
+trait.trait private @tuple.Tuple(!trait.claim<@tuple.Tuple[!trait.poly<0>]>)
 
 func.func @internal_tuple_claim(
   %arg0: !trait.poly<0>,
@@ -108,7 +108,7 @@ func.func @internal_tuple_claim(
 // -----
 // homogeneous-tuple facts must be projected to Tuple before downcast
 
-trait.trait private @HomogeneousTuple(%self: !trait.claim<@HomogeneousTuple[!trait.poly<0>]>) attributes {tuple.impl_generator = "homogeneous_tuple"} {}
+trait.trait private @HomogeneousTuple(!trait.claim<@HomogeneousTuple[!trait.poly<0>]>) attributes {tuple.impl_generator = "homogeneous_tuple"}
 
 func.func @homogeneous_tuple_claim(
   %arg0: !trait.poly<0>,
@@ -123,7 +123,7 @@ func.func @homogeneous_tuple_claim(
 // the tuple-structure trait is the one tagged `tuple.impl_generator = "tuple"`;
 // a trait named Tuple without the tag is not it
 
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!trait.poly<0>]>) {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!trait.poly<0>]>)
 
 func.func @untagged_tuple_claim(
   %arg0: !trait.poly<0>,

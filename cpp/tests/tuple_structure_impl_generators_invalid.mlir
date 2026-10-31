@@ -5,10 +5,8 @@
 
 !T = !trait.poly<0>
 
-trait.trait private @tuple.HomogeneousTuple(%self: !trait.claim<@tuple.HomogeneousTuple[!T]>) attributes {
+trait.trait private @tuple.HomogeneousTuple(!trait.claim<@tuple.HomogeneousTuple[!T]>) assoc {Element = 0} attributes {
   tuple.impl_generator = "homogeneous_tuple"
-} {
-  trait.assoc_type @Element
 }
 
 // expected-error @+2 {{no impl with satisfiable assumptions for '!trait.proj<@tuple.HomogeneousTuple[tuple<i64, i1>], "Element">'}}

@@ -2,11 +2,9 @@
 
 !T = !trait.poly<0>
 
-trait.trait private @Tuple(%self: !trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @Tuple(!trait.claim<@Tuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
-trait.trait private @HomogeneousTuple(%self: !trait.claim<@HomogeneousTuple[!T]>) -> !trait.claim<@Tuple[!T]> {
-  trait.assoc_type @Element
-}
+trait.trait private @HomogeneousTuple(!trait.claim<@HomogeneousTuple[!T]>) -> !trait.claim<@Tuple[!T]> assoc {Element = 0}
 
 // CHECK-LABEL: func @downcast_basic
 // CHECK: tuple.downcast
@@ -56,7 +54,7 @@ func.func @downcast_from_homogeneous_projection(
 // The tuple-structure trait is the one tagged `tuple.impl_generator = "tuple"`,
 // whatever it is named.
 
-trait.trait private @IsTuple(%self: !trait.claim<@IsTuple[!T]>) attributes {tuple.impl_generator = "tuple"} {}
+trait.trait private @IsTuple(!trait.claim<@IsTuple[!T]>) attributes {tuple.impl_generator = "tuple"}
 
 // CHECK-LABEL: func @downcast_through_a_tagged_trait_of_another_name
 // CHECK: tuple.downcast %{{.*}}, %{{.*}} : !trait.poly<0>, <@IsTuple[!trait.poly<0>]> -> !tuple.poly<0>

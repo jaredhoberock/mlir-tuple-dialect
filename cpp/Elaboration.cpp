@@ -171,6 +171,13 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
       return success();
     }
 
+    // The member of the trait the op names that each element position calls.
+    auto trait = op.getTrait(/*err=*/nullptr);
+    FlatSymbolRefAttr member =
+        succeeded(trait) ? trait->getMemberNamed(method) : FlatSymbolRefAttr();
+    if (!member)
+      return rewriter.notifyMatchFailure(op, "the trait declares no such member");
+
     Location loc = op.getLoc();
     MLIRContext* ctx = op.getContext();
     auto i1Ty = rewriter.getI1Type();
@@ -187,7 +194,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
     // build the body:
     //
     // ^bb0(%acc: i1, %li: !Li, %ri: !Ri, %ci: !trait.claim<@Trait[!Li,!Ri]>):
-    //   %call_res = trait.method.call %ci @method(%li, %ri) : !trait.claim<@Trait[!Li,!Ri]>, ...
+    //   %call_res = trait.func.call @Trait.method(%ci, %li, %ri) : (!trait.claim<@Trait[!Li,!Ri]>, ...) -> i1
     //   %resi = AND or OR with %acc
     //   yield %resi : i1
     {
@@ -211,12 +218,11 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
       Value ri = body->getArgument(2);
       Value ci = body->getArgument(3);
 
-      // call the method requested by the tuple.cmp
-      Value callRes = trait::MethodCallOp::create(rewriter,
+      // call the member requested by the tuple.cmp
+      Value callRes = trait::FuncCallOp::create(rewriter,
         loc, TypeRange{i1Ty},
-        method,
-        ci,
-        ValueRange{li,ri}
+        member,
+        ValueRange{ci, li, ri}
       ).getResult(0);
 
       // fold: eq -> AND; ne -> OR
@@ -265,6 +271,13 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
       return success();
     }
 
+    // The members of the trait the op names that each element position calls.
+    auto trait = op.getTrait(/*err=*/nullptr);
+    FlatSymbolRefAttr lt = succeeded(trait) ? trait->getMemberNamed("lt") : FlatSymbolRefAttr();
+    FlatSymbolRefAttr gt = succeeded(trait) ? trait->getMemberNamed("gt") : FlatSymbolRefAttr();
+    if (!lt || !gt)
+      return rewriter.notifyMatchFailure(op, "the trait declares no lt or gt member");
+
     MLIRContext *ctx = op.getContext();
     Location loc = op.getLoc();
 
@@ -289,10 +302,10 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
     //   %all_eq  = tuple.get %acc, 1 : tuple<i1,i1> -> i1
     //
     //   // Per-element calls (exactly two)
-    //   %lt_i = trait.method.call %ci @lt(%li, %ri)
-    //           : !trait.claim<@Trait[!Li,!Ri]>, (!Li, !Ri) -> i1
-    //   %gt_i = trait.method.call %ci @gt(%li, %ri)
-    //           : !trait.claim<@Trait[!Li,!Ri]>, (!Li, !Ri) -> i1
+    //   %lt_i = trait.func.call @Trait.lt(%ci, %li, %ri)
+    //           : (!trait.claim<@Trait[!Li,!Ri]>, !Li, !Ri) -> i1
+    //   %gt_i = trait.func.call @Trait.gt(%ci, %li, %ri)
+    //           : (!trait.claim<@Trait[!Li,!Ri]>, !Li, !Ri) -> i1
     //
     //   // Equality at this position
     //   %either = arith.ori %lt_i, %gt_i
@@ -335,10 +348,10 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
       Value res   = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(0));
       Value allEq = GetOp::create(rewriter, loc, i1, acc, rewriter.getIndexAttr(1));
 
-      Value lt_i = trait::MethodCallOp::create(rewriter,
-        loc, TypeRange{i1}, "lt", ci, ValueRange{li, ri}).getResult(0);
-      Value gt_i = trait::MethodCallOp::create(rewriter,
-        loc, TypeRange{i1}, "gt", ci, ValueRange{li, ri}).getResult(0);
+      Value lt_i = trait::FuncCallOp::create(rewriter,
+        loc, TypeRange{i1}, lt, ValueRange{ci, li, ri}).getResult(0);
+      Value gt_i = trait::FuncCallOp::create(rewriter,
+        loc, TypeRange{i1}, gt, ValueRange{ci, li, ri}).getResult(0);
 
       Value either = arith::OrIOp::create(rewriter, loc, lt_i, gt_i);
       Value eq_i   = arith::XOrIOp::create(rewriter, loc, either, cTrue);

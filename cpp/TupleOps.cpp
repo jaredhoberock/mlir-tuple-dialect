@@ -613,9 +613,10 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
   if (failed(trait))
     return failure();
 
-  // make sure the trait has the method we'll need as well
-  if (failed(trait->getMethod(getMethodName(), errFn)))
-    return failure();
+  // make sure the trait has the member we'll need as well
+  if (!trait->getMemberNamed(getMethodName()))
+    return errFn() << "trait '" << getTraitRefAttr() << "' declares no member '"
+                   << getMethodName() << "'";
 
   // if no claims were provided, this is the monomorphic path
   Value claims = getClaims();

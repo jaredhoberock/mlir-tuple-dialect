@@ -134,10 +134,12 @@ struct TupleGenerator : trait::ImplGenerator {
     auto traitRef = FlatSymbolRefAttr::get(ctx, trait.getSymName());
     auto claim = ClaimType::get(ctx, traitRef, {selfTy});
 
-    // Tuple has no methods or associated types; the body alleges whatever the
+    // Tuple has no members or associated types of its own; the impl leaves
+    // every member to its trait's default and its body alleges whatever the
     // trait requires, for selection to prove where a use reads it.
     ImplOp impl = ImplOp::create(builder, loc, claim.getTraitApplication(),
                                  ArrayRef<ClaimType>{});
+    impl.completeMembers(trait);
     allegeRequirements(impl, trait, builder);
     return impl;
   }
@@ -180,15 +182,14 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
     auto claim = ClaimType::get(ctx, traitRef, {tupleTy});
 
     // The impl is built whole on a detached builder and inserted once, so a
-    // half-built impl is never a candidate. Its body binds Element and alleges
-    // what the trait requires, for selection to prove where a use reads it.
+    // half-built impl is never a candidate. It binds Element, leaves every
+    // member to its trait's default, and alleges what the trait requires, for
+    // selection to prove where a use reads it.
     OpBuilder detached(ctx);
     ImplOp impl = ImplOp::create(detached, loc, claim.getTraitApplication(),
                                  ArrayRef<ClaimType>{});
-
-    detached.setInsertionPointToStart(&impl.getBody().front());
-    AssocTypeOp::create(detached, loc, "Element",
-                        TypeAttr::get(*elementTy), ArrayAttr{});
+    impl.bindAssociatedType("Element", *elementTy);
+    impl.completeMembers(trait);
     allegeRequirements(impl, trait, detached);
 
     builder.insert(impl);
@@ -200,13 +201,13 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
 /// maps another trait across the elements of two tuples and binds the tuple of
 /// the resulting claims as its `Claims` associated type.
 ///
-///   trait.trait @tuple.MapEq(%self: !trait.claim<@tuple.MapEq[!S, !O]>) attributes {
+///   trait.trait @tuple.MapEq(!trait.claim<@tuple.MapEq[!S, !O]>)
+///       assoc {Claims = 0} members [@tuple.MapEq.claims] attributes {
 ///     tuple.impl_generator = "map",
 ///     tuple.mapped_trait   = @Eq
-///   } {
-///     trait.assoc_type @Claims
-///     trait.method @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///   }
+///   func.func private @tuple.MapEq.claims(!trait.claim<@tuple.MapEq[!S, !O]>)
+///       -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///
 /// For a wanted claim like:
 ///
@@ -214,14 +215,16 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
 ///
 /// this generator answers with the impl for exactly that application:
 ///
-///   trait.impl @...(%self: !trait.claim<@tuple.MapEq[tuple<i32>, tuple<i64>]>,
-///                   %eq: !trait.claim<@Eq[i32, i64]>) {
-///       trait.assoc_type @Claims = tuple<!trait.claim<@Eq[i32,i64]>>
-///       trait.method @claims() -> tuple<!trait.claim<@Eq[i32,i64]>> {
-///         %res = tuple.make(%eq)
-///         trait.return %res
-///       }
-///     }
+///   trait.impl @I(%self: !trait.claim<@tuple.MapEq[tuple<i32>, tuple<i64>]>,
+///                 %eq: !trait.claim<@Eq[i32, i64]>)
+///       bindings {Claims = tuple<!trait.claim<@Eq[i32,i64]>>}
+///       members [@tuple.MapEq.claims -> @I.claims] {
+///   }
+///   func.func private @I.claims(%self: ..., %eq: !trait.claim<@Eq[i32, i64]>)
+///       -> tuple<!trait.claim<@Eq[i32,i64]>> {
+///     %res = tuple.make(%eq)
+///     return %res
+///   }
 ///
 /// Position i of the two tuples contributes the where entry @Eq[Li, Ri], and
 /// the `Claims` binding is those same applications claimed, in order. A demand
@@ -268,44 +271,34 @@ struct MapGenerator : trait::ImplGenerator {
       ArrayRef<Type>{lhs, rhs}
     );
 
+    // The mapper's one member, which the impl implements.
+    FlatSymbolRefAttr claimsMember = trait.getMemberNamed("claims");
+    if (!claimsMember) return failure();
+
     // The impl is built whole on a detached builder and inserted once, so a
     // half-built impl is never a candidate. Its where entries are those same
-    // applications, one per position.
+    // applications, one per position, and it binds @Claims to their tuple.
     OpBuilder detached(ctx);
     ImplOp impl = ImplOp::create(detached, loc, selfApp, claims);
-
-    // the impl's body binds @Claims and defines @claims(), whose result is the
-    // tuple of the impl's where entries, its block arguments after the first:
-    //   %res = tuple.make(%c0, %c1, ...)
-    //   trait.return %res
-    {
-      detached.setInsertionPointToStart(&impl.getBody().front());
-
-      AssocTypeOp::create(detached, loc, "Claims",
-                          TypeAttr::get(tupleOfClaims), ArrayAttr{});
-
-      // trait.method @claims() -> tupleOfClaims
-      auto claimsFunc = trait::MethodOp::create(detached,
-        loc,
-        "claims",
-        FunctionType::get(ctx, {}, tupleOfClaims)
-      );
-
-      // build function body
-      detached.setInsertionPointToStart(claimsFunc.addEntryBlock());
-
-      // each element position's claim is the impl's where entry at that
-      // position
-      SmallVector<Value> elements(
-          impl.getBody().front().getArguments().drop_front());
-
-      // tuple.make of all claims, and return it
-      auto result = MakeOp::create(detached, loc, elements);
-      trait::ReturnOp::create(detached, loc, result.getResult());
-    }
+    impl.bindAssociatedType("Claims", tupleOfClaims);
     allegeRequirements(impl, trait, detached);
-
     builder.insert(impl);
+
+    // The function implementing @claims returns the tuple of the impl's where
+    // entries, the parameters after the leading self claim:
+    //   %res = tuple.make(%c0, %c1, ...)
+    //   return %res
+    func::FuncOp claimsFunc = impl.addMember(
+        builder, loc, claimsMember, FunctionType::get(ctx, {}, tupleOfClaims));
+    {
+      OpBuilder::InsertionGuard guard(builder);
+      Block &entry = claimsFunc.getBody().front();
+      builder.setInsertionPointToStart(&entry);
+      SmallVector<Value> elements(entry.getArguments().drop_front());
+      auto result = MakeOp::create(builder, loc, elements);
+      func::ReturnOp::create(builder, loc, result.getResult());
+    }
+    impl.completeMembers(trait);
     return impl;
   }
 };
@@ -315,13 +308,13 @@ struct MapGenerator : trait::ImplGenerator {
 /// elements of two tuples, which `MapGenerator` implements, binding the tuple
 /// of the resulting claims as its `Claims` associated type:
 ///
-///   trait.trait @tuple.MapEq(%self: !trait.claim<@tuple.MapEq[!S, !O]>) attributes {
+///   trait.trait @tuple.MapEq(!trait.claim<@tuple.MapEq[!S, !O]>)
+///       assoc {Claims = 0} members [@tuple.MapEq.claims] attributes {
 ///     tuple.impl_generator = "map",
 ///     tuple.mapped_trait   = @Eq
-///   } {
-///     trait.assoc_type @Claims
-///     trait.method @claims() -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///   }
+///   func.func private @tuple.MapEq.claims(!trait.claim<@tuple.MapEq[!S, !O]>)
+///       -> !trait.proj<@tuple.MapEq[!S,!O], "Claims">
 ///
 /// A mapper is the trait its `tuple.mapped_trait` link makes one
 /// (`isMapperOf`), never a trait of some name: the name a declared mapper
@@ -330,15 +323,15 @@ struct MapGenerator : trait::ImplGenerator {
 /// the two tuple types alone: the tuple of per-element claims is what its impl
 /// binds, so an impl for a given pair of tuples determines it rather than a
 /// caller having to spell it.
-static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
-                                            trait::TraitOp mappedTrait,
-                                            OpBuilder &builder) {
+static trait::TraitOp declareMapperTrait(ModuleOp module,
+                                        trait::TraitOp mappedTrait,
+                                        OpBuilder &builder) {
   using namespace mlir::trait;
   MLIRContext *ctx = builder.getContext();
   auto mappedRef = FlatSymbolRefAttr::get(ctx, mappedTrait.getSymName());
   for (TraitOp declared : module.getOps<TraitOp>())
     if (isMapperOf(declared, mappedRef))
-      return FlatSymbolRefAttr::get(ctx, declared.getSymName());
+      return declared;
 
   SymbolTable symbols(module);
   auto taken = [&](StringRef name) { return symbols.lookup(name) != nullptr; };
@@ -360,34 +353,38 @@ static FlatSymbolRefAttr declareMapperTrait(ModuleOp module,
   mapper->setAttr("tuple.impl_generator", StringAttr::get(ctx, "map"));
   mapper->setAttr("tuple.mapped_trait", mappedRef);
 
-  builder.setInsertionPointToStart(&mapper.getBody().front());
-  AssocTypeOp::create(builder, loc, "Claims", TypeAttr{}, ArrayAttr{});
+  mapper.declareAssociatedType("Claims", 0);
   auto selfApp = TraitApplicationAttr::get(ctx, mapperRef, ArrayRef{S, O});
   auto claimsTy = builder.getFunctionType(
       /*inputs=*/TypeRange{},
       /*results=*/ProjectionType::get(ctx, selfApp,
                                       StringAttr::get(ctx, "Claims"),
                                       /*assocTypeArgs=*/{}));
-  MethodOp::create(builder, loc, "claims", claimsTy);
-  return mapperRef;
+  builder.setInsertionPointAfter(mapper);
+  mapper.addMember(builder, loc, "claims", claimsTy, /*withDefault=*/false);
+  return mapper;
 }
 
 /// Builds the impl of a comparison trait for two tuples of equal arity.
 ///
 /// The impl answers the demanded pair itself and assumes the mapper for the
-/// same pair, which it declares where the module lacks it; each method asks the
-/// mapper for the elementwise claims and hands them to `tuple.cmp`:
+/// same pair, which it declares where the module lacks it; the function
+/// implementing each member asks the mapper for the elementwise claims and
+/// hands them to `tuple.cmp`:
 ///
-///   trait.impl @...(%self: !trait.claim<@PartialEq[tuple<i32>, tuple<i32>]>,
-///                   %a: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>) {
-///     trait.method @eq(%x: tuple<i32>, %y: tuple<i32>) -> i1 {
-///       %claims = trait.method.call %a @claims()
-///         : !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>,
-///           () -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
-///       %res = tuple.cmp eq @PartialEq, %x, %y, %claims
-///       trait.return %res : i1
-///     }
+///   trait.impl @I(%self: !trait.claim<@PartialEq[tuple<i32>, tuple<i32>]>,
+///                 %a: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>)
+///       members [@PartialEq.eq -> @I.eq, @PartialEq.ne -> @PartialEq.ne] {
 ///   }
+///   func.func private @I.eq(%self: ..., %a: ..., %x: tuple<i32>, %y: tuple<i32>) -> i1 {
+///     %claims = trait.func.call @tuple.MapPartialEq.claims(%a)
+///       : (!trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>)
+///         -> !trait.proj<@tuple.MapPartialEq[tuple<i32>, tuple<i32>], "Claims">
+///     %res = tuple.cmp eq @PartialEq, %x, %y, %claims
+///     return %res : i1
+///   }
+///
+/// A trait declaring no member of one of `methods`' names gets no impl.
 static FailureOr<trait::ImplOp> generateTupleCmpImpl(
     trait::TraitOp trait,
     trait::ClaimType wanted,
@@ -407,8 +404,21 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
   MLIRContext *ctx = builder.getContext();
   Location loc = builder.getUnknownLoc();
 
-  // the mapper trait is what supplies the elementwise claims
-  FlatSymbolRefAttr mapperRef = declareMapperTrait(module, trait, builder);
+  // Each member the impl implements, by the name the generator's tag promises.
+  SmallVector<FlatSymbolRefAttr> members;
+  for (auto [methodName, predicate] : methods) {
+    members.push_back(trait.getMemberNamed(methodName));
+    if (!members.back())
+      return failure();
+  }
+
+  // the mapper trait is what supplies the elementwise claims, through its one
+  // member
+  TraitOp mapper = declareMapperTrait(module, trait, builder);
+  auto mapperRef = FlatSymbolRefAttr::get(ctx, mapper.getSymName());
+  FlatSymbolRefAttr claimsMember = mapper.getMemberNamed("claims");
+  if (!claimsMember)
+    return failure();
 
   auto selfApp = TraitApplicationAttr::get(
     ctx,
@@ -430,43 +440,37 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
   OpBuilder detached(ctx);
   ImplOp impl = ImplOp::create(detached, loc, selfApp,
                                ArrayRef<ClaimType>{ClaimType::get(ctx, assumption)});
-  Value mapper = impl.getBody().front().getArgument(1);
+  allegeRequirements(impl, trait, detached);
+  builder.insert(impl);
 
-  for (auto [methodName, predicate] : methods) {
-    OpBuilder::InsertionGuard guard(detached);
-    detached.setInsertionPoint(impl.getReturn());
+  for (auto [member, method] : llvm::zip(members, methods)) {
+    auto fnTy = builder.getFunctionType({lhs, rhs}, builder.getI1Type());
+    func::FuncOp fn = impl.addMember(builder, loc, member, fnTy);
 
-    auto fnTy = detached.getFunctionType({lhs, rhs}, detached.getI1Type());
-    auto fn = trait::MethodOp::create(detached, loc, methodName, fnTy);
+    // The function leads with the impl's self claim and its where entry, the
+    // mapper's claim, then the two tuples it compares.
+    OpBuilder::InsertionGuard guard(builder);
+    Block &entry = fn.getBody().front();
+    builder.setInsertionPointToStart(&entry);
+    Value mapperClaim = entry.getArgument(1);
+    Value self = entry.getArgument(2);
+    Value other = entry.getArgument(3);
 
-    Block *entry = fn.addEntryBlock();
-    detached.setInsertionPointToStart(entry);
-    Value self = entry->getArgument(0);
-    Value other = entry->getArgument(1);
-
-    // %claims = trait.method.call %a @claims()
-    //   : !trait.claim<@tuple.Map<Trait>[lhs,rhs]>, () -> claimsTy
-    Value claims = MethodCallOp::create(detached,
-      loc,
-      /*results=*/TypeRange{claimsTy},
-      /*method_name=*/"claims",
-      /*claim=*/mapper,
-      /*arguments=*/ValueRange{}
-    ).getResult(0);
+    // %claims = trait.func.call @<mapper>.claims(%a)
+    //   : (!trait.claim<@tuple.Map<Trait>[lhs,rhs]>) -> claimsTy
+    Value claims = FuncCallOp::create(builder, loc, TypeRange{claimsTy},
+                                      claimsMember, ValueRange{mapperClaim})
+                       .getResult(0);
 
     // %res = tuple.cmp <predicate> @Trait, %self, %other, %claims: the
     // comparison is under the trait this impl serves, the one it names
-    Value res = CmpOp::create(detached, loc,
-                              CmpPredicateAttr::get(ctx, predicate),
+    Value res = CmpOp::create(builder, loc,
+                              CmpPredicateAttr::get(ctx, method.second),
                               FlatSymbolRefAttr::get(ctx, trait.getSymName()),
                               self, other, claims);
-
-    // trait.return %res : i1
-    trait::ReturnOp::create(detached, loc, res);
+    func::ReturnOp::create(builder, loc, res);
   }
-  allegeRequirements(impl, trait, detached);
-
-  builder.insert(impl);
+  impl.completeMembers(trait);
   return impl;
 }
 

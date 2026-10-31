@@ -23,22 +23,20 @@ func.func @cmp_ne_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(%self_claim: !trait.claim<@PartialEq[!S, !O]>) attributes {tuple.impl_generator = "partial_eq"} {
-  trait.method @eq(!S, !O) -> i1
-
-  trait.method @ne(%self: !S, %other: !O) -> i1 {
-    %equal = trait.method.call %self_claim @eq(%self, %other) : !trait.claim<@PartialEq[!S,!O]>, (!S, !O) -> i1
-    %true = arith.constant 1 : i1
-    %result = arith.xori %equal, %true : i1
-    trait.return %result : i1
-  }
+trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, default @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
+func.func private @PartialEq.eq(!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
+func.func private @PartialEq.ne(%self_claim: !trait.claim<@PartialEq[!S, !O]>, %self: !S, %other: !O) -> i1 {
+  %equal = trait.func.call @PartialEq.eq(%self_claim, %self, %other) : (!trait.claim<@PartialEq[!S,!O]>, !S, !O) -> i1
+  %true = arith.constant 1 : i1
+  %result = arith.xori %equal, %true : i1
+  return %result : i1
 }
 
-trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) {
-  trait.method @eq(%self: i32, %other: i32) -> i1 {
-    %res = arith.cmpi eq, %self, %other : i32
-    trait.return %res : i1
-  }
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq, @PartialEq.ne -> @PartialEq.ne] {
+}
+func.func private @PartialEq_i32.eq(%self_claim: !trait.claim<@PartialEq[i32, i32]>, %self: i32, %other: i32) -> i1 {
+  %res = arith.cmpi eq, %self, %other : i32
+  return %res : i1
 }
 
 // -----
@@ -63,11 +61,11 @@ func.func @cmp_ne_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]>) {
-  trait.method @eq(%self: i64, %other: i64) -> i1 {
-    %res = arith.cmpi eq, %self, %other : i64
-    trait.return %res : i1
-  }
+trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]>) members [@PartialEq.eq -> @PartialEq_i64.eq, @PartialEq.ne -> @PartialEq.ne] {
+}
+func.func private @PartialEq_i64.eq(%self_claim: !trait.claim<@PartialEq[i64, i64]>, %self: i64, %other: i64) -> i1 {
+  %res = arith.cmpi eq, %self, %other : i64
+  return %res : i1
 }
 
 // -----
