@@ -614,9 +614,9 @@ LogicalResult CmpOp::verifySymbolUses(SymbolTableCollection &symbolTable) {
     return failure();
 
   // make sure the trait has the member we'll need as well
-  if (!trait->getMemberNamed(getMethodName()))
+  if (!trait->getMemberNamed(getMemberName()))
     return errFn() << "trait '" << getTraitRefAttr() << "' declares no member '"
-                   << getMethodName() << "'";
+                   << getMemberName() << "'";
 
   // if no claims were provided, this is the monomorphic path
   Value claims = getClaims();
@@ -679,7 +679,7 @@ Type CmpOp::getMapperClaimsProjection(FlatSymbolRefAttr mapper) {
                                     /*assocTypeArgs=*/{});
 }
 
-StringRef CmpOp::getMethodName() {
+StringRef CmpOp::getMemberName() {
   switch (getPredicate()) {
     case CmpPredicate::eq:
       return "eq";

@@ -8,7 +8,7 @@
 // chose: @One (7) and @Two (9) respectively. A call's result repeats its
 // callee's signature, which repeats what the body returns, and a tuple.get's
 // result is its element's type, so each extracted claim carries its body's
-// proof and the method called through it runs the chosen impl's.
+// proof and the member called through it runs the chosen impl's.
 
 // CHECK: {{^}}79{{$}}
 

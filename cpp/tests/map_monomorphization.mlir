@@ -4,7 +4,7 @@
 // RUN: mlir-opt %s -split-input-file --pass-pipeline="builtin.module(monomorphize-trait)" | FileCheck %s
 
 // -----
-// call a method — exercises trait claim resolution, impl dispatch, and
+// call a member — exercises trait claim resolution, impl dispatch, and
 // instantiation of a distinct callee per element type (i32 vs f32).
 
 !S = !trait.poly<0>

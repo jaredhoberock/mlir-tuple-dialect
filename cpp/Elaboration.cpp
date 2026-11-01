@@ -143,15 +143,15 @@ struct CatOpLowering : OpRewritePattern<CatOp> {
 };
 
 // rewrites a tuple.cmp with eq/ne, lhs, rhs, and claims operands into a
-// tuple.foldl op calling the eq or ne method of the trait the op names at each
+// tuple.foldl op calling the eq or ne member of the trait the op names at each
 // element position
 struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
 
   LogicalResult matchAndRewrite(CmpOp op,
                                 PatternRewriter& rewriter) const override {
-    StringRef method = op.getMethodName();
-    if (method != "eq" && method != "ne")
+    StringRef name = op.getMemberName();
+    if (name != "eq" && name != "ne")
       return rewriter.notifyMatchFailure(op, "only eq/ne supported");
 
     // only apply when there is a claims operand
@@ -164,9 +164,9 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
     if (isa<trait::ProjectionType>(claims.getType()))
       return rewriter.notifyMatchFailure(op, "claims type is an unresolved projection");
 
-    // handle empty tuples directly so that we do not attempt to call a method below
+    // handle empty tuples directly so that we do not attempt to call a member below
     if (auto arity = op.getArity(); arity && *arity == 0) {
-      const bool val = method == "eq";
+      const bool val = name == "eq";
       rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getBoolAttr(val));
       return success();
     }
@@ -174,7 +174,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
     // The member of the trait the op names that each element position calls.
     auto trait = op.getTrait(/*err=*/nullptr);
     FlatSymbolRefAttr member =
-        succeeded(trait) ? trait->getMemberNamed(method) : FlatSymbolRefAttr();
+        succeeded(trait) ? trait->getMemberNamed(name) : FlatSymbolRefAttr();
     if (!member)
       return rewriter.notifyMatchFailure(op, "the trait declares no such member");
 
@@ -185,7 +185,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
     // init accumulator: true for eq, false for ne
     Value init = arith::ConstantOp::create(rewriter,
       loc,
-      rewriter.getBoolAttr(method == "eq")
+      rewriter.getBoolAttr(name == "eq")
     );
 
     SmallVector<Value,3> inputs{op.getLhs(), op.getRhs(), claims};
@@ -226,7 +226,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
       ).getResult(0);
 
       // fold: eq -> AND; ne -> OR
-      Value resi = (method == "eq")
+      Value resi = (name == "eq")
         ? (Value)arith::AndIOp::create(rewriter, loc, acc, callRes)
         : (Value)arith::OrIOp::create(rewriter, loc, acc, callRes);
 
@@ -239,7 +239,7 @@ struct CmpOpEqualityLowering : OpRewritePattern<CmpOp> {
 };
 
 // rewrites a tuple.cmp with le/lt/ge/gt, lhs, rhs, and claims operands into a
-// tuple.foldl op calling the lt and gt methods of the trait the op names at
+// tuple.foldl op calling the lt and gt members of the trait the op names at
 // each element position
 struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
   using OpRewritePattern::OpRewritePattern;
@@ -264,7 +264,7 @@ struct CmpOpOrderingLowering : OpRewritePattern<CmpOp> {
     if (isa<trait::ProjectionType>(claims.getType()))
       return rewriter.notifyMatchFailure(op, "claims type is an unresolved projection");
 
-    // handle empty tuples directly so that we do not attempt to call a method below
+    // handle empty tuples directly so that we do not attempt to call a member below
     if (auto arity = op.getArity(); arity && *arity == 0) {
       const bool val = (pred == CmpPredicate::le) || (pred == CmpPredicate::ge);
       rewriter.replaceOpWithNewOp<arith::ConstantOp>(op, rewriter.getBoolAttr(val));

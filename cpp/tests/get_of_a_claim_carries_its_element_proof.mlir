@@ -5,7 +5,7 @@
 
 // @T[i32] is derived from @TI over the hand-written proof @pb, packed into a
 // tuple and taken back out. A tuple.get's result is its element's type, so the
-// claim it extracts carries the proof the derive wrote, and the method called
+// claim it extracts carries the proof the derive wrote, and the member called
 // through it runs @TI's.
 
 // CHECK: {{^}}9{{$}}

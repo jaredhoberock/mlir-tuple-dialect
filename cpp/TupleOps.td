@@ -117,7 +117,7 @@ def CmpOp : TupleOp<"cmp", [
   let description = [{
     Compares two tuple values elementwise with a comparison predicate, under
     the trait `trait` names: each element pair is compared by that trait's
-    method of the predicate's name (`eq`, `ne`, `lt`, `le`, `gt`, `ge`). The
+    member of the predicate's name (`eq`, `ne`, `lt`, `le`, `gt`, `ge`). The
     op compares under the trait it names and no other; the claims operand,
     where present, holds one claim of that trait per element position.
 
@@ -172,7 +172,9 @@ def CmpOp : TupleOp<"cmp", [
     /// The trait this op compares under, the one it names.
     FlatSymbolRefAttr getTraitRefAttr() { return getTraitAttr(); }
 
-    StringRef getMethodName();
+    /// The name of the member of the trait this op compares under that its
+    /// predicate compares by, the predicate's own name.
+    StringRef getMemberName();
 
     /// The claims operand's type while `mapper`, which maps this op's trait
     /// across tuple elements, has not been resolved: the projection of

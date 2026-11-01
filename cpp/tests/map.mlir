@@ -59,7 +59,7 @@ func.func private @Id_f32.id(%self_claim: !trait.claim<@Id[f32]>, %self: f32) ->
   return %self : f32
 }
 
-// ---- call a method within monomorphic map
+// ---- call a member within monomorphic map
 
 // CHECK-LABEL: func @map_id_i32_f32
 // CHECK: tuple.map
