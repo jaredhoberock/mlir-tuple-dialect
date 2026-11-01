@@ -13,7 +13,7 @@
 
 !T = !trait.poly<0>
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @H(!trait.claim<@H[!T]>) assoc {Element = 0} members [default @H.v] attributes {tuple.impl_generator = "homogeneous_tuple"}
+  trait.trait private @H(!trait.claim<@H[!T]>) assoc {Element = 0} members [@H.v] attributes {tuple.impl_generator = "homogeneous_tuple"}
   func.func private @H.v(%s: !trait.claim<@H[!T]>) -> i64 {
     %v = arith.constant 7 : i64 return %v : i64
   }

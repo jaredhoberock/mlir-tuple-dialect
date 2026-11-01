@@ -24,7 +24,7 @@ fn append_partial_eq_trait<'c>(
     loc: Location<'c>
 ) {
     let source = r#"
-    trait.trait private @PartialEq(!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>) members [@PartialEq.eq, default @PartialEq.ne]
+    trait.trait private @PartialEq(!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>) members [@PartialEq.eq, @PartialEq.ne]
     func.func private @PartialEq.eq(!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1
     func.func private @PartialEq.ne(%claim: !trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, %self: !trait.poly<0>, %other: !trait.poly<1>) -> i1 {
       %equal = trait.func.call @PartialEq.eq(%claim, %self, %other) : (!trait.claim<@PartialEq[!trait.poly<0>,!trait.poly<1>]>, !trait.poly<0>, !trait.poly<1>) -> i1

@@ -82,7 +82,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
 //--- settled_by_another_demand.mlir
 !T = !trait.poly<0>
 module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu", chip = "">} {
-  trait.trait private @G(!trait.claim<@G[!T]>) assoc {Element = 0} members [default @G.value] attributes {tuple.impl_generator = "homogeneous_tuple"}
+  trait.trait private @G(!trait.claim<@G[!T]>) assoc {Element = 0} members [@G.value] attributes {tuple.impl_generator = "homogeneous_tuple"}
   func.func private @G.value(%s: !trait.claim<@G[!T]>) -> i64 {
     %c = arith.constant 0 : i64 return %c : i64
   }

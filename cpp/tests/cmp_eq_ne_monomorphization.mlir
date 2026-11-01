@@ -23,7 +23,7 @@ func.func @cmp_ne_empty(%a : tuple<>, %b : tuple<>) -> i1 {
 
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, default @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
+trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
 func.func private @PartialEq.eq(!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
 func.func private @PartialEq.ne(%self_claim: !trait.claim<@PartialEq[!S, !O]>, %self: !S, %other: !O) -> i1 {
   %equal = trait.func.call @PartialEq.eq(%self_claim, %self, %other) : (!trait.claim<@PartialEq[!S,!O]>, !S, !O) -> i1

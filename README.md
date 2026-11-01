@@ -38,7 +38,7 @@ During impl resolution, the tuple dialect generates the necessary impls of `Part
 ```mlir
 !S = !trait.poly<0>
 !O = !trait.poly<1>
-trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, default @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
+trait.trait private @PartialEq(!trait.claim<@PartialEq[!S, !O]>) members [@PartialEq.eq, @PartialEq.ne] attributes {tuple.impl_generator = "partial_eq"}
 func.func private @PartialEq.eq(!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
 func.func private @PartialEq.ne(%self: !trait.claim<@PartialEq[!S, !O]>, %a: !S, %b: !O) -> i1 {
   %eq = trait.func.call @PartialEq.eq(%self, %a, %b) : (!trait.claim<@PartialEq[!S, !O]>, !S, !O) -> i1
