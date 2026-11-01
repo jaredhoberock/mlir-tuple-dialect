@@ -39,7 +39,7 @@ checksum = "2261d10cca569e4643e526d8dc2e62e433cc8aba21ab764233731f8d369bf394"
 [[package]]
 name = "build-support"
 version = "0.1.0"
-source = "git+ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git#66880ca78c0b749c9c021f382804bd0011d719e1"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git#b69b7cdbeedc00c797fa7bc89bc3e6ca3bd97035"
 dependencies = [
  "serde_json",
 ]
@@ -232,7 +232,7 @@ dependencies = [
 [[package]]
 name = "mlir-lowering-driver"
 version = "0.1.0"
-source = "git+ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git#66880ca78c0b749c9c021f382804bd0011d719e1"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-lowering-driver.git#b69b7cdbeedc00c797fa7bc89bc3e6ca3bd97035"
 dependencies = [
  "build-support",
  "melior",
@@ -251,7 +251,7 @@ dependencies = [
 [[package]]
 name = "mlir-trait-dialect"
 version = "0.2.0"
-source = "git+ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git#06dcd9d4e0eb5610dcc1aa2c3ad43002d381b30b"
+source = "git+ssh://git@github.com/jaredhoberock/mlir-trait-dialect.git#f0291d0edbde7b38536764ae749e8727af20373d"
 dependencies = [
  "build-support",
  "melior",
