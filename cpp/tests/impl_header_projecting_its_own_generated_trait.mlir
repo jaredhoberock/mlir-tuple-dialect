@@ -17,7 +17,7 @@ module attributes {llvm.target = #llvm.target<triple = "x86_64-unknown-linux-gnu
   func.func private @H.v(%s: !trait.claim<@H[!T]>) -> i64 {
     %v = arith.constant 7 : i64 return %v : i64
   }
-  trait.impl private @I(%s: !trait.claim<@H[!trait.proj<@H[tuple<i64>], "Element">]>) bindings {Element = i32} members [@H.v -> @H.v] {
+  trait.impl private @I(%s: !trait.claim<@H[!trait.proj<@H[tuple<i64>], "Element">]>) bindings {Element = i32} {
   }
   func.func @main() -> i64 {
     %a = trait.allege @H[i64]

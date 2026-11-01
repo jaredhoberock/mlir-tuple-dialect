@@ -48,7 +48,7 @@ func.func private @PartialEq.ne(%self: !trait.claim<@PartialEq[!S, !O]>, %a: !S,
 }
 
 trait.impl private @PartialEq_i64(%self: !trait.claim<@PartialEq[i64, i64]>)
-    members [@PartialEq.eq -> @PartialEq_i64.eq, @PartialEq.ne -> @PartialEq.ne] {
+    members [@PartialEq.eq -> @PartialEq_i64.eq] {
 }
 func.func private @PartialEq_i64.eq(%self: !trait.claim<@PartialEq[i64, i64]>, %a: i64, %b: i64) -> i1 {
   %res = arith.cmpi eq, %a, %b : i64

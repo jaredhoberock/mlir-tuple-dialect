@@ -73,7 +73,7 @@ fn append_partial_eq_i32_impl<'c>(
     loc: Location<'c>,
 ) {
     let source = r#"
-    trait.impl private @PartialEq_i32(%claim: !trait.claim<@PartialEq[i32,i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq, @PartialEq.ne -> @PartialEq.ne] {
+    trait.impl private @PartialEq_i32(%claim: !trait.claim<@PartialEq[i32,i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq] {
     }
     func.func private @PartialEq_i32.eq(%claim: !trait.claim<@PartialEq[i32,i32]>, %self: i32, %other: i32) -> i1 {
       %res = arith.cmpi eq, %self, %other : i32

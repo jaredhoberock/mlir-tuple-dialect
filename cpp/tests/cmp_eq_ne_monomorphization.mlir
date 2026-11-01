@@ -32,7 +32,7 @@ func.func private @PartialEq.ne(%self_claim: !trait.claim<@PartialEq[!S, !O]>, %
   return %result : i1
 }
 
-trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq, @PartialEq.ne -> @PartialEq.ne] {
+trait.impl private @PartialEq_i32(%self_claim: !trait.claim<@PartialEq[i32, i32]>) members [@PartialEq.eq -> @PartialEq_i32.eq] {
 }
 func.func private @PartialEq_i32.eq(%self_claim: !trait.claim<@PartialEq[i32, i32]>, %self: i32, %other: i32) -> i1 {
   %res = arith.cmpi eq, %self, %other : i32
@@ -61,7 +61,7 @@ func.func @cmp_ne_single_i32(%a : tuple<i32>, %b : tuple<i32>) -> i1 {
   return %res : i1
 }
 
-trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]>) members [@PartialEq.eq -> @PartialEq_i64.eq, @PartialEq.ne -> @PartialEq.ne] {
+trait.impl private @PartialEq_i64(%self_claim: !trait.claim<@PartialEq[i64, i64]>) members [@PartialEq.eq -> @PartialEq_i64.eq] {
 }
 func.func private @PartialEq_i64.eq(%self_claim: !trait.claim<@PartialEq[i64, i64]>, %self: i64, %other: i64) -> i1 {
   %res = arith.cmpi eq, %self, %other : i64

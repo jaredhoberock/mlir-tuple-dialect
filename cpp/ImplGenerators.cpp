@@ -139,7 +139,6 @@ struct TupleGenerator : trait::ImplGenerator {
     // trait requires, for selection to prove where a use reads it.
     ImplOp impl = ImplOp::create(builder, loc, claim.getTraitApplication(),
                                  ArrayRef<ClaimType>{});
-    impl.completeMembers(trait);
     allegeRequirements(impl, trait, builder);
     return impl;
   }
@@ -189,7 +188,6 @@ struct HomogeneousTupleGenerator : trait::ImplGenerator {
     ImplOp impl = ImplOp::create(detached, loc, claim.getTraitApplication(),
                                  ArrayRef<ClaimType>{});
     impl.bindAssociatedType("Element", *elementTy);
-    impl.completeMembers(trait);
     allegeRequirements(impl, trait, detached);
 
     builder.insert(impl);
@@ -298,7 +296,6 @@ struct MapGenerator : trait::ImplGenerator {
       auto result = MakeOp::create(builder, loc, elements);
       func::ReturnOp::create(builder, loc, result.getResult());
     }
-    impl.completeMembers(trait);
     return impl;
   }
 };
@@ -374,7 +371,7 @@ static trait::TraitOp declareMapperTrait(ModuleOp module,
 ///
 ///   trait.impl @I(%self: !trait.claim<@PartialEq[tuple<i32>, tuple<i32>]>,
 ///                 %a: !trait.claim<@tuple.MapPartialEq[tuple<i32>, tuple<i32>]>)
-///       members [@PartialEq.eq -> @I.eq, @PartialEq.ne -> @PartialEq.ne] {
+///       members [@PartialEq.eq -> @I.eq] {
 ///   }
 ///   func.func private @I.eq(%self: ..., %a: ..., %x: tuple<i32>, %y: tuple<i32>) -> i1 {
 ///     %claims = trait.func.call @tuple.MapPartialEq.claims(%a)
@@ -470,7 +467,6 @@ static FailureOr<trait::ImplOp> generateTupleCmpImpl(
                               self, other, claims);
     func::ReturnOp::create(builder, loc, res);
   }
-  impl.completeMembers(trait);
   return impl;
 }
 
